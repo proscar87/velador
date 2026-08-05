@@ -42,9 +42,15 @@ ALWAYS_IGNORED_DOMAINS = {
     "shopping_list",
 }
 
+CONF_STALE_ENTITIES = "stale_entities"
+CONF_STALE_MINUTES = "stale_minutes"
+DEFAULT_STALE_MINUTES = 60
+
 EVENT_ZOMBIE_DETECTED = "velador_zombie_detected"
 EVENT_HEALED = "velador_healed"
 EVENT_INCURABLE = "velador_incurable"
+EVENT_STALE_DETECTED = "velador_stale_detected"
+EVENT_STALE_RECOVERED = "velador_stale_recovered"
 
 STATUS_WATCHING = "vigilando"
 STATUS_ZOMBIE = "zombie"

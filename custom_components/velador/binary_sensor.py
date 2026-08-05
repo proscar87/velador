@@ -38,4 +38,8 @@ class ZombieProblemSensor(CoordinatorEntity[VeladorCoordinator], BinarySensorEnt
 
     @property
     def is_on(self) -> bool:
-        return bool(self.coordinator.data.zombies or self.coordinator.data.incurables)
+        return bool(
+            self.coordinator.data.zombies
+            or self.coordinator.data.incurables
+            or self.coordinator.data.stale
+        )

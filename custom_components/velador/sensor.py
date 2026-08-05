@@ -18,6 +18,7 @@ async def async_setup_entry(
     async_add_entities(
         [
             ZombieCountSensor(coordinator),
+            StaleCountSensor(coordinator),
             HealedTotalSensor(coordinator),
             WatchedSensor(coordinator),
         ]
@@ -82,3 +83,20 @@ class WatchedSensor(VeladorSensor):
     @property
     def native_value(self) -> int:
         return self.coordinator.data.watched
+
+
+class StaleCountSensor(VeladorSensor):
+    _attr_translation_key = "stale"
+    _attr_icon = "mdi:snowflake-alert"
+
+    def __init__(self, coordinator: VeladorCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.entry.entry_id}_stale"
+
+    @property
+    def native_value(self) -> int:
+        return len(self.coordinator.data.stale)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {"congelados": self.coordinator.data.stale}

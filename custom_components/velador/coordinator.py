@@ -21,6 +21,11 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     ALWAYS_IGNORED_DOMAINS,
+    CONF_STALE_ENTITIES,
+    CONF_STALE_MINUTES,
+    DEFAULT_STALE_MINUTES,
+    EVENT_STALE_DETECTED,
+    EVENT_STALE_RECOVERED,
     CONF_AUTO_HEAL,
     CONF_COOLDOWN_HOURS,
     CONF_EXCLUDE_DOMAINS,
@@ -65,6 +70,7 @@ class VeladorData:
 
     zombies: list[dict] = field(default_factory=list)
     incurables: list[dict] = field(default_factory=list)
+    stale: list[dict] = field(default_factory=list)
     watched: int = 0
     healed_total: int = 0
     last_scan: datetime | None = None
@@ -82,6 +88,7 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
         )
         self.entry = entry
         self._watch: dict[str, WatchState] = {}
+        self._stale_active: set[str] = set()
         self._started = dt_util.utcnow()
         self._healed_total = 0
 
@@ -189,8 +196,72 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
                 del self._watch[entry_id]
                 ir.async_delete_issue(self.hass, DOMAIN, f"zombie_{entry_id}")
 
+        self._scan_stale(data)
         data.healed_total = self._healed_total
         return data
+
+    def _scan_stale(self, data: VeladorData) -> None:
+        """Sensores congelados: reportan un valor viejo sin ponerse unavailable.
+
+        Usa last_reported (no last_updated): un sensor sano que repite el
+        mismo valor sigue reportando; el congelado dejó de reportar.
+        """
+        watched = self._opt(CONF_STALE_ENTITIES, [])
+        if not watched:
+            return
+        max_age = timedelta(minutes=self._opt(CONF_STALE_MINUTES, DEFAULT_STALE_MINUTES))
+        now = dt_util.utcnow()
+
+        for entity_id in watched:
+            state = self.hass.states.get(entity_id)
+            issue_id = f"stale_{entity_id}"
+            if state is None or state.state in ("unavailable", "unknown"):
+                # Muerto visible: eso lo cubre la detección zombie, no es stale.
+                self._stale_recover(entity_id, issue_id, silent=True)
+                continue
+            reported = getattr(state, "last_reported", None) or state.last_updated
+            age = now - reported
+            if age <= max_age:
+                self._stale_recover(entity_id, issue_id, silent=False)
+                continue
+
+            info = {
+                "entity_id": entity_id,
+                "state": state.state,
+                "last_reported": reported.isoformat(),
+                "minutes_stale": int(age.total_seconds() // 60),
+            }
+            data.stale.append(info)
+            if entity_id not in self._stale_active:
+                self._stale_active.add(entity_id)
+                _LOGGER.warning(
+                    "Sensor congelado: %s lleva %s min reportando '%s'",
+                    entity_id,
+                    info["minutes_stale"],
+                    state.state,
+                )
+                self.hass.bus.async_fire(EVENT_STALE_DETECTED, info)
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    issue_id,
+                    is_fixable=False,
+                    severity=ir.IssueSeverity.WARNING,
+                    translation_key="stale",
+                    translation_placeholders={
+                        "entity_id": entity_id,
+                        "minutes": str(info["minutes_stale"]),
+                        "state": state.state,
+                    },
+                )
+
+    def _stale_recover(self, entity_id: str, issue_id: str, silent: bool) -> None:
+        if entity_id in self._stale_active:
+            self._stale_active.discard(entity_id)
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+            if not silent:
+                _LOGGER.info("Sensor descongelado: %s", entity_id)
+                self.hass.bus.async_fire(EVENT_STALE_RECOVERED, {"entity_id": entity_id})
 
     def _on_zombie_detected(self, config_entry: ConfigEntry, info: dict) -> None:
         _LOGGER.warning(
