@@ -1,0 +1,49 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Velador",
+        "description": "Velador vigila todas las integraciones cargadas y revive las que mueren en silencio (config entry cargado, entidades unavailable). No necesita configuración — la sensibilidad se ajusta después en Opciones."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Ya está configurado. Solo se permite una instancia."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opciones de Velador",
+        "data": {
+          "threshold": "Umbral zombie (fracción de entidades unavailable, 0.5–1.0)",
+          "min_entities": "Mínimo de entidades para vigilar una integración",
+          "strikes": "Escaneos fallidos consecutivos antes de declarar zombie",
+          "auto_heal": "Auto-curación (recargar la integración automáticamente)",
+          "cooldown_hours": "Horas entre intentos de recarga de la misma integración",
+          "grace_minutes": "Minutos de gracia tras el arranque de Home Assistant",
+          "exclude_domains": "Dominios extra a ignorar (separados por coma)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "zombies": {"name": "Zombies"},
+      "healed": {"name": "Revividas total"},
+      "watched": {"name": "Integraciones vigiladas"}
+    },
+    "binary_sensor": {
+      "problem": {"name": "Problema"}
+    }
+  },
+  "issues": {
+    "zombie": {
+      "title": "Integración zombie: {title}",
+      "description": "La integración **{title}** ({domain}) reporta estar cargada pero {dead} de {total} de sus entidades están unavailable. Velador intentará recargarla automáticamente."
+    },
+    "incurable": {
+      "title": "Integración necesita manos: {title}",
+      "description": "La integración **{title}** ({domain}) siguió muerta tras {attempts} recargas automáticas. Probablemente necesita re-autenticación, arreglo de credenciales o atención física. Velador dejará de recargarla hasta que se recupere."
+    }
+  }
+}

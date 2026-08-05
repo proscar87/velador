@@ -1,0 +1,49 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Velador",
+        "description": "Velador watches every loaded integration and revives the ones that die silently (config entry loaded, entities unavailable). No configuration needed — tune sensitivity later in Options."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Already configured. Only a single instance is possible."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Velador options",
+        "data": {
+          "threshold": "Zombie threshold (fraction of entities unavailable, 0.5–1.0)",
+          "min_entities": "Minimum entities for an integration to be watched",
+          "strikes": "Consecutive failed scans before declaring zombie",
+          "auto_heal": "Auto-heal (reload the integration automatically)",
+          "cooldown_hours": "Hours between reload attempts of the same integration",
+          "grace_minutes": "Grace minutes after Home Assistant starts",
+          "exclude_domains": "Extra domains to ignore (comma separated)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "zombies": {"name": "Zombies"},
+      "healed": {"name": "Healed total"},
+      "watched": {"name": "Watched integrations"}
+    },
+    "binary_sensor": {
+      "problem": {"name": "Problem"}
+    }
+  },
+  "issues": {
+    "zombie": {
+      "title": "Zombie integration: {title}",
+      "description": "The integration **{title}** ({domain}) reports as loaded but {dead} of {total} of its entities are unavailable. Velador will try to reload it automatically."
+    },
+    "incurable": {
+      "title": "Integration needs manual attention: {title}",
+      "description": "The integration **{title}** ({domain}) stayed dead after {attempts} automatic reloads. It likely needs re-authentication, a credential fix or physical attention. Velador will stop reloading it until it recovers."
+    }
+  }
+}
