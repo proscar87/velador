@@ -6,6 +6,8 @@ from typing import Any
 
 import voluptuous as vol
 
+from homeassistant.helpers import selector
+
 from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
@@ -16,6 +18,9 @@ from homeassistant.core import callback
 
 from .const import (
     CONF_AUTO_HEAL,
+    CONF_STALE_ENTITIES,
+    CONF_STALE_MINUTES,
+    DEFAULT_STALE_MINUTES,
     CONF_COOLDOWN_HOURS,
     CONF_EXCLUDE_DOMAINS,
     CONF_GRACE_MINUTES,
@@ -93,6 +98,16 @@ class VeladorOptionsFlow(OptionsFlow):
                     CONF_EXCLUDE_DOMAINS,
                     default=opts.get(CONF_EXCLUDE_DOMAINS, DEFAULT_EXCLUDE_DOMAINS),
                 ): str,
+                vol.Optional(
+                    CONF_STALE_ENTITIES,
+                    default=opts.get(CONF_STALE_ENTITIES, []),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(multiple=True)
+                ),
+                vol.Optional(
+                    CONF_STALE_MINUTES,
+                    default=opts.get(CONF_STALE_MINUTES, DEFAULT_STALE_MINUTES),
+                ): vol.All(vol.Coerce(int), vol.Range(min=5, max=1440)),
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)

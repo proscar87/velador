@@ -16,6 +16,7 @@ Velador does three things:
 |---|---|
 | `binary_sensor.velador_problema` | `on` when any zombie or incurable exists (device class: problem) |
 | `sensor.velador_zombies` | Count of current zombies + incurables, with full detail in attributes |
+| `sensor.velador_congelados` | Stale sensors currently detected, detail in attributes |
 | `sensor.velador_revividas_total` | Integrations healed since last HA start |
 | `sensor.velador_integraciones_vigiladas` | How many entries are being watched (disabled by default) |
 
@@ -24,6 +25,8 @@ Velador does three things:
 - `velador_zombie_detected` — `{entry_id, domain, title, dead, total, examples, zombie_since}`
 - `velador_healed` — `{entry_id, domain, title}`
 - `velador_incurable` — same payload as detected
+- `velador_stale_detected` — `{entity_id, state, last_reported, minutes_stale}`
+- `velador_stale_recovered` — `{entity_id}`
 
 ## Options
 
@@ -36,6 +39,8 @@ Velador does three things:
 | Cooldown | 6 h | Minimum time between reloads of the same entry |
 | Grace | 15 min | Ignore everything right after HA starts |
 | Exclude domains | — | Comma-separated domains you never want touched (e.g. integrations that are *expected* to be offline) |
+| Stale entities | — | Entities watched for **staleness**: still "available" but silently frozen. Uses `last_reported`, so a healthy sensor repeating the same value is NOT stale |
+| Stale minutes | 60 | Minutes without reporting before declaring an entity stale |
 
 Helpers, `mobile_app`, HACS and similar meta-domains are always ignored.
 
@@ -47,7 +52,7 @@ Via [HACS](https://hacs.xyz): add `https://github.com/proscar87/velador` as a cu
 
 Born in a real smart home (1,800+ entities, 130+ integrations) that survived a Mexican summer of CFE power outages. After every outage or HA update some integration would load as a zombie — Emporia, VeSync, Eight Sleep, Tuya, vehicle APIs — and we'd find out days later from a hole in the data. We rebuilt this watchdog three times as YAML automations before accepting it should be code in a repo.
 
-Roadmap: stale-entity detection (a sensor frozen for hours is a liar, not a healthy sensor) as a sibling feature.
+**0.2** added stale-entity detection: a sensor frozen for hours is a liar, not a healthy sensor — the failure mode that blinded our edge-triggered watchdogs for 3 hours after an outage. See [ROADMAP.md](ROADMAP.md) for what's next and [CHANGELOG.md](CHANGELOG.md) for history.
 
 ## License
 
