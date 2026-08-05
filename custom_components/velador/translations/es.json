@@ -60,7 +60,7 @@
     },
     "stale": {
       "title": "Sensor congelado: {entity_id}",
-      "description": "**{entity_id}** lleva {minutes} minutos sin reportar y sigue mostrando '{state}' como si fuera actual. El último valor de un sensor congelado es una mentira — revisa el dispositivo, su batería o su malla."
+      "description": "**{entity_id}** lleva {minutes} minutos sin reportar y sigue mostrando {state} como si fuera actual. El último valor de un sensor congelado es una mentira — revisa el dispositivo, su batería o su malla."
     }
   }
 }

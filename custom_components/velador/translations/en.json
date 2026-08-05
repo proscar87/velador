@@ -60,7 +60,7 @@
     },
     "stale": {
       "title": "Stale sensor: {entity_id}",
-      "description": "**{entity_id}** has not reported for {minutes} minutes and still shows '{state}' as if it were current. A frozen sensor's last value is a lie — check the device, its battery or its mesh."
+      "description": "**{entity_id}** has not reported for {minutes} minutes and still shows {state} as if it were current. A frozen sensor's last value is a lie — check the device, its battery or its mesh."
     }
   }
 }
