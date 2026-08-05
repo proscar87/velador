@@ -27,6 +27,7 @@ Velador does three things:
 - `velador_incurable` — same payload as detected
 - `velador_stale_detected` — `{entity_id, state, last_reported, minutes_stale}`
 - `velador_stale_recovered` — `{entity_id}`
+- `velador_reauth_needed` — `{entry_id, domain, title, ...}` (reload won't fix it; credentials will)
 
 ## Options
 
@@ -41,6 +42,9 @@ Velador does three things:
 | Exclude domains | — | Comma-separated domains you never want touched (e.g. integrations that are *expected* to be offline) |
 | Stale entities | — | Entities watched for **staleness**: still "available" but silently frozen. Uses `last_reported`, so a healthy sensor repeating the same value is NOT stale |
 | Stale minutes | 60 | Minutes without reporting before declaring an entity stale |
+| Canary entities | — | Critical entities that heal their owning integration directly when unavailable — catches PARTIAL death the ratio never sees |
+| Canary minutes | 20 | How long a canary must be unavailable before healing |
+| WAN entity | — | Connectivity entity; while it's down, cloud integrations are neither judged nor healed (the failure is the environment), and cooldowns are released when it recovers |
 
 Helpers, `mobile_app`, HACS and similar meta-domains are always ignored.
 

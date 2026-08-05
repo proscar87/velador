@@ -42,6 +42,14 @@ ALWAYS_IGNORED_DOMAINS = {
     "shopping_list",
 }
 
+CONF_CANARY_ENTITIES = "canary_entities"
+CONF_CANARY_MINUTES = "canary_minutes"
+DEFAULT_CANARY_MINUTES = 20
+CONF_WAN_ENTITY = "wan_entity"
+
+# Dominios hub: recargarlos por un sensor tira el bus entero de la casa.
+HUB_DOMAINS_NO_RELOAD = {"mqtt", "zha", "zwave_js", "matter", "deconz", "otbr", "thread"}
+
 CONF_STALE_ENTITIES = "stale_entities"
 CONF_STALE_MINUTES = "stale_minutes"
 DEFAULT_STALE_MINUTES = 60
@@ -51,6 +59,7 @@ EVENT_HEALED = "velador_healed"
 EVENT_INCURABLE = "velador_incurable"
 EVENT_STALE_DETECTED = "velador_stale_detected"
 EVENT_STALE_RECOVERED = "velador_stale_recovered"
+EVENT_REAUTH_NEEDED = "velador_reauth_needed"
 
 STATUS_WATCHING = "vigilando"
 STATUS_ZOMBIE = "zombie"

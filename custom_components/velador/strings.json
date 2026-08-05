@@ -23,7 +23,10 @@
           "grace_minutes": "Grace minutes after Home Assistant starts",
           "exclude_domains": "Extra domains to ignore (comma separated)",
           "stale_entities": "Entities to watch for staleness",
-          "stale_minutes": "Minutes without reporting to declare stale"
+          "stale_minutes": "Minutes without reporting to declare stale",
+          "canary_entities": "Canaries: critical entities that heal their integration when they die",
+          "canary_minutes": "Minutes a canary must be unavailable before healing",
+          "wan_entity": "WAN connectivity entity (optional: no internet, no cloud heals wasted)"
         }
       }
     }
@@ -61,6 +64,10 @@
     "stale": {
       "title": "Stale sensor: {entity_id}",
       "description": "**{entity_id}** has not reported for {minutes} minutes and still shows {state} as if it were current. A frozen sensor's last value is a lie — check the device, its battery or its mesh."
+    },
+    "reauth": {
+      "title": "Re-authentication pending: {title}",
+      "description": "The integration **{title}** ({domain}) has an open re-authentication flow — reloading will NOT cure it, it needs credentials. Velador will not waste reloads on it. Resolve the reauth in Settings → Devices & Services."
     }
   }
 }
