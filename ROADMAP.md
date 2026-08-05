@@ -2,6 +2,19 @@
 
 Velador detecta y cura la muerte silenciosa en Home Assistant: integraciones zombie, sensores congelados y todo lo que falla sin avisar. Lo que NO va a ser: notificador push, gestor de Zigbee, plataforma de métricas ni dashboard — la señal siempre será Repairs + entidades + eventos, con cero red propia y cero dependencias.
 
+## La frontera (regla de producto)
+
+El ecosistema ya tiene auditores; Velador no compite con ellos, los completa:
+
+| Herramienta | Territorio | Pregunta que responde |
+|---|---|---|
+| **Watchman** | Config estática | "¿Tu YAML apunta a algo que no existe?" |
+| **Spook** | Referencias rotas | "¿Hay fantasmas en tus automatizaciones/dashboards?" |
+| **Retry nativo de HA** | Entries que no cargaron | "¿Reintento el setup que falló?" |
+| **Velador** | **Estado real en runtime + acción** | "¿Lo que HA dice que está vivo, está vivo de verdad — y si no, lo revivo?" |
+
+Toda feature nueva pasa este filtro: si es análisis estático de configuración, es de Watchman/Spook y se descarta; si es reintentar setups fallidos a secas, ya lo hace core; si es observar el estado real del sistema en operación y actuar sobre él, es de Velador.
+
 ---
 
 ## v0.3 — Cerrar los puntos ciegos que más duelen
@@ -24,6 +37,9 @@ El README linkeaba a un ROADMAP.md que no existía (404 en la primera visita). Y
 ---
 
 ## v0.4 — Curar mejor, no más
+
+**Memoria persistente de WatchState (promovido desde v0.5)**
+Persistir strikes, intentos, incurables y cooldowns en `Store` para que un restart no borre lo aprendido. Evidencia del update a HA 2026.8 (5-ago): tras el restart, los 2 incurables CONOCIDOS (smartthings con token vencido, bambu_lab pidiendo reauth) volvieron a "intento 1" — Velador re-quemará 2 reloads y 12h de cooldown en cada uno para re-descubrir lo que ya había diagnosticado. Con memoria, un incurable previo arranca en el circuit breaker espaciado, no desde cero. También cubre el reset por cambio de opciones (recarga del entry = amnesia hoy).
 
 **Vigilar entries en SETUP_ERROR / SETUP_RETRY**
 Hoy el escaneo hace `continue` en todo lo que no está LOADED, así que un entry caído en setup_error es invisible. Extender el loop con la misma escalera y la conciencia de reauth de v0.3 (el reload solo cuando puede curar). Escenario real: el Volvo XC90 cayó en setup_error con un micro-corte y nadie lo cubría; VeSync cayó en invalid_auth transitorio y un simple reload lo curó tras ~20h de zombie. En SETUP_RETRY, templanza: el retry nativo de HA ya corre.
@@ -63,7 +79,7 @@ Hoy todos los issues nacen con `is_fixable=False` — puros letreros. Con `Repai
 Listener barato de transiciones a `unavailable` que encola un chequeo dirigido del entry dueño con debounce de ~60s. Baja el peor caso de detección de ~15 min a ~1 min — tras un apagón, eso es la diferencia entre un hueco de datos y un blip. El scan de 5 min queda de red de seguridad y para stale.
 
 **Contador persistente + diagnostics**
-`Store` para que un restart no regrese `revividas_total` a 0 justo cuando Velador acaba de trabajar más; curaciones por dominio y MTTR como atributos. Y `diagnostics.py` con la tabla de vigilancia completa (redactada): un issue de GitHub con JSON descargable en vez de ping-pong de logs.
+`Store` para `revividas_total` (la persistencia de WatchState se promovió a v0.4); curaciones por dominio y MTTR como atributos. Y `diagnostics.py` con la tabla de vigilancia completa (redactada): un issue de GitHub con JSON descargable en vez de ping-pong de logs.
 
 ---
 
