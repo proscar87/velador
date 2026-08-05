@@ -1,0 +1,8 @@
+name: Garita
+on: [push, pull_request]
+jobs:
+  garita:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: proscar87/garita@v0
