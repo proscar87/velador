@@ -18,8 +18,12 @@ from homeassistant.core import callback
 
 from .const import (
     CONF_AUTO_HEAL,
+    CONF_CANARY_ENTITIES,
+    CONF_CANARY_MINUTES,
     CONF_STALE_ENTITIES,
     CONF_STALE_MINUTES,
+    CONF_WAN_ENTITY,
+    DEFAULT_CANARY_MINUTES,
     DEFAULT_STALE_MINUTES,
     CONF_COOLDOWN_HOURS,
     CONF_EXCLUDE_DOMAINS,
@@ -108,6 +112,20 @@ class VeladorOptionsFlow(OptionsFlow):
                     CONF_STALE_MINUTES,
                     default=opts.get(CONF_STALE_MINUTES, DEFAULT_STALE_MINUTES),
                 ): vol.All(vol.Coerce(int), vol.Range(min=5, max=1440)),
+                vol.Optional(
+                    CONF_CANARY_ENTITIES,
+                    default=opts.get(CONF_CANARY_ENTITIES, []),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(multiple=True)
+                ),
+                vol.Optional(
+                    CONF_CANARY_MINUTES,
+                    default=opts.get(CONF_CANARY_MINUTES, DEFAULT_CANARY_MINUTES),
+                ): vol.All(vol.Coerce(int), vol.Range(min=5, max=240)),
+                vol.Optional(
+                    CONF_WAN_ENTITY,
+                    description={"suggested_value": opts.get(CONF_WAN_ENTITY, "")},
+                ): str,
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)

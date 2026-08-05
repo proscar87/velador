@@ -17,12 +17,19 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.loader import async_get_integration
 from homeassistant.util import dt as dt_util
 
 from .const import (
     ALWAYS_IGNORED_DOMAINS,
+    CONF_CANARY_ENTITIES,
+    CONF_CANARY_MINUTES,
     CONF_STALE_ENTITIES,
     CONF_STALE_MINUTES,
+    CONF_WAN_ENTITY,
+    DEFAULT_CANARY_MINUTES,
+    EVENT_REAUTH_NEEDED,
+    HUB_DOMAINS_NO_RELOAD,
     DEFAULT_STALE_MINUTES,
     EVENT_STALE_DETECTED,
     EVENT_STALE_RECOVERED,
@@ -60,6 +67,7 @@ class WatchState:
     last_reload: datetime | None = None
     reload_attempts: int = 0
     incurable: bool = False
+    needs_reauth: bool = False
     healed_count: int = 0
     zombie_since: datetime | None = None
 
@@ -89,6 +97,8 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
         self.entry = entry
         self._watch: dict[str, WatchState] = {}
         self._stale_active: set[str] = set()
+        self._iot_class: dict[str, str] = {}
+        self._wan_was_down = False
         self._started = dt_util.utcnow()
         self._healed_total = 0
 
@@ -100,6 +110,30 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
         raw = self._opt(CONF_EXCLUDE_DOMAINS, "")
         extra = {d.strip() for d in raw.split(",") if d.strip()}
         return ALWAYS_IGNORED_DOMAINS | extra
+
+    def _reauth_pending(self, entry_id: str) -> bool:
+        """Hay un reauth flow abierto para este entry: el reload NO cura eso."""
+        for flow in self.hass.config_entries.flow.async_progress():
+            ctx = flow.get("context") or {}
+            if ctx.get("source") == "reauth" and ctx.get("entry_id") == entry_id:
+                return True
+        return False
+
+    def _wan_down(self) -> bool:
+        wan = self._opt(CONF_WAN_ENTITY, "")
+        if not wan:
+            return False
+        state = self.hass.states.get(wan)
+        return state is None or state.state in ("off", "unavailable", "unknown", "not_home")
+
+    async def _is_cloud(self, domain: str) -> bool:
+        if domain not in self._iot_class:
+            try:
+                integration = await async_get_integration(self.hass, domain)
+                self._iot_class[domain] = integration.iot_class or ""
+            except Exception:  # noqa: BLE001 — dominio raro: tratar como local
+                self._iot_class[domain] = ""
+        return self._iot_class[domain].startswith("cloud")
 
     async def _async_update_data(self) -> VeladorData:
         data = VeladorData(healed_total=self._healed_total, last_scan=dt_util.utcnow())
@@ -115,6 +149,14 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
         auto_heal = self._opt(CONF_AUTO_HEAL, DEFAULT_AUTO_HEAL)
         cooldown = timedelta(hours=self._opt(CONF_COOLDOWN_HOURS, DEFAULT_COOLDOWN_HOURS))
         excluded = self._excluded_domains
+
+        wan_down = self._wan_down()
+        if self._wan_was_down and not wan_down:
+            # Volvió el internet: liberar cooldowns para curación inmediata.
+            _LOGGER.info("WAN de vuelta: cooldowns liberados para curación agresiva")
+            for watch_state in self._watch.values():
+                watch_state.last_reload = None
+        self._wan_was_down = wan_down
 
         registry = er.async_get(self.hass)
         entities_by_entry: dict[str, list[er.RegistryEntry]] = {}
@@ -151,6 +193,10 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
             data.watched += 1
             watch = self._watch.setdefault(config_entry.entry_id, WatchState())
             is_zombie = (dead / total) >= threshold
+
+            if is_zombie and wan_down and await self._is_cloud(config_entry.domain):
+                # Sin internet la falla es del entorno: congelar juicio y curas.
+                continue
 
             if not is_zombie:
                 if watch.strikes >= strikes_needed or watch.incurable:
@@ -196,11 +242,75 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
                 del self._watch[entry_id]
                 ir.async_delete_issue(self.hass, DOMAIN, f"zombie_{entry_id}")
 
-        self._scan_stale(data)
+        await self._scan_canaries(data, wan_down)
+        await self._scan_stale(data, wan_down)
         data.healed_total = self._healed_total
         return data
 
-    def _scan_stale(self, data: VeladorData) -> None:
+    async def _heal_owner(
+        self, entry_id: str | None, data: VeladorData, wan_down: bool, info: dict
+    ) -> None:
+        """Escalera de curación para el entry dueño de una entidad (canario/stale)."""
+        if not entry_id:
+            return
+        config_entry = self.hass.config_entries.async_get_entry(entry_id)
+        if config_entry is None or config_entry.state is not ConfigEntryState.LOADED:
+            return
+        if (
+            config_entry.domain in self._excluded_domains
+            or config_entry.domain in HUB_DOMAINS_NO_RELOAD
+        ):
+            return
+        if wan_down and await self._is_cloud(config_entry.domain):
+            return
+        if not self._opt(CONF_AUTO_HEAL, DEFAULT_AUTO_HEAL):
+            return
+        watch = self._watch.setdefault(entry_id, WatchState())
+        if watch.incurable:
+            return
+        cooldown = timedelta(hours=self._opt(CONF_COOLDOWN_HOURS, DEFAULT_COOLDOWN_HOURS))
+        full_info = {
+            "entry_id": entry_id,
+            "domain": config_entry.domain,
+            "title": config_entry.title,
+            **info,
+        }
+        await self._maybe_heal(config_entry, watch, cooldown, full_info)
+
+    async def _scan_canaries(self, data: VeladorData, wan_down: bool) -> None:
+        """Canarios: entidades críticas que curan su entry sin esperar el ratio.
+
+        Cazan la muerte PARCIAL: 1 CT muerto de 4 jamás llega al 90%.
+        """
+        watched = self._opt(CONF_CANARY_ENTITIES, [])
+        if not watched:
+            return
+        max_age = timedelta(minutes=self._opt(CONF_CANARY_MINUTES, DEFAULT_CANARY_MINUTES))
+        now = dt_util.utcnow()
+        registry = er.async_get(self.hass)
+        healed: set[str] = set()
+        for entity_id in watched:
+            state = self.hass.states.get(entity_id)
+            if state is None or state.state != "unavailable":
+                continue
+            if now - state.last_changed < max_age:
+                continue
+            reg = registry.entities.get(entity_id)
+            entry_id = reg.config_entry_id if reg else None
+            if not entry_id or entry_id in healed:
+                continue
+            healed.add(entry_id)
+            await self._heal_owner(
+                entry_id,
+                data,
+                wan_down,
+                {
+                    "canario": entity_id,
+                    "muerto_min": int((now - state.last_changed).total_seconds() // 60),
+                },
+            )
+
+    async def _scan_stale(self, data: VeladorData, wan_down: bool) -> None:
         """Sensores congelados: reportan un valor viejo sin ponerse unavailable.
 
         Usa last_reported (no last_updated): un sensor sano que repite el
@@ -232,6 +342,10 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
                 "minutes_stale": int(age.total_seconds() // 60),
             }
             data.stale.append(info)
+            reg = er.async_get(self.hass).entities.get(entity_id)
+            await self._heal_owner(
+                reg.config_entry_id if reg else None, data, wan_down, {"stale": entity_id}
+            )
             if entity_id not in self._stale_active:
                 self._stale_active.add(entity_id)
                 _LOGGER.warning(
@@ -294,6 +408,30 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
         cooldown: timedelta,
         info: dict,
     ) -> None:
+        if self._reauth_pending(config_entry.entry_id):
+            if not watch.needs_reauth:
+                watch.needs_reauth = True
+                _LOGGER.warning(
+                    "%s (%s) tiene reauth pendiente: el reload no cura eso, "
+                    "se requieren credenciales",
+                    config_entry.title,
+                    config_entry.domain,
+                )
+                self.hass.bus.async_fire(EVENT_REAUTH_NEEDED, info)
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    f"reauth_{config_entry.entry_id}",
+                    is_fixable=False,
+                    severity=ir.IssueSeverity.ERROR,
+                    translation_key="reauth",
+                    translation_placeholders={
+                        "title": config_entry.title,
+                        "domain": config_entry.domain,
+                    },
+                )
+            return
+
         now = dt_util.utcnow()
         if watch.last_reload and now - watch.last_reload < cooldown:
             return
@@ -339,6 +477,8 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
     def _on_healed(self, config_entry: ConfigEntry, watch: WatchState) -> None:
         watch.healed_count += 1
         watch.reload_attempts = 0
+        watch.needs_reauth = False
+        ir.async_delete_issue(self.hass, DOMAIN, f"reauth_{config_entry.entry_id}")
         self._healed_total += 1
         _LOGGER.info("Revivió: %s (%s)", config_entry.title, config_entry.domain)
         self.hass.bus.async_fire(

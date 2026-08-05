@@ -23,7 +23,10 @@
           "grace_minutes": "Minutos de gracia tras el arranque de Home Assistant",
           "exclude_domains": "Dominios extra a ignorar (separados por coma)",
           "stale_entities": "Entidades a vigilar por congelamiento (stale)",
-          "stale_minutes": "Minutos sin reportar para declarar congelado"
+          "stale_minutes": "Minutos sin reportar para declarar congelado",
+          "canary_entities": "Canarios: entidades críticas que curan su integración al morir",
+          "canary_minutes": "Minutos unavailable de un canario antes de curar",
+          "wan_entity": "Entidad de conectividad WAN (opcional: sin internet no se gastan curas cloud)"
         }
       }
     }
@@ -61,6 +64,10 @@
     "stale": {
       "title": "Sensor congelado: {entity_id}",
       "description": "**{entity_id}** lleva {minutes} minutos sin reportar y sigue mostrando {state} como si fuera actual. El último valor de un sensor congelado es una mentira — revisa el dispositivo, su batería o su malla."
+    },
+    "reauth": {
+      "title": "Reautenticación pendiente: {title}",
+      "description": "La integración **{title}** ({domain}) tiene un flujo de reautenticación abierto — recargarla NO la va a curar, necesita credenciales. Velador no gastará reloads en ella. Resuelve el reauth en Ajustes → Dispositivos y servicios."
     }
   }
 }
