@@ -16,6 +16,7 @@ VeladorConfigEntry = ConfigEntry
 
 async def async_setup_entry(hass: HomeAssistant, entry: VeladorConfigEntry) -> bool:
     coordinator = VeladorCoordinator(hass, entry)
+    await coordinator.async_load_state()
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
