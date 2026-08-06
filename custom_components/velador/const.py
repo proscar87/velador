@@ -60,6 +60,37 @@ EVENT_INCURABLE = "velador_incurable"
 EVENT_STALE_DETECTED = "velador_stale_detected"
 EVENT_STALE_RECOVERED = "velador_stale_recovered"
 EVENT_REAUTH_NEEDED = "velador_reauth_needed"
+EVENT_STORM_DETECTED = "velador_storm_detected"
+EVENT_FLAPPING = "velador_flapping"
+EVENT_DEVICE_ZOMBIE = "velador_device_zombie"
+
+# Modo tormenta: N zombies nuevos en el mismo escaneo = apagón/caída de red,
+# no N fallas independientes. Un solo Repair + reloads secuenciales.
+STORM_THRESHOLD = 3
+STORM_RELOAD_SPACING_SECONDS = 30
+
+# Circuit breaker: backoff entre reloads fallidos (el último escalón lo pone
+# la opción cooldown_hours del usuario). Incurable deja de ser terminal:
+# probe half-open 1×/24h.
+BACKOFF_MINUTES = [30, 120]
+INCURABLE_RETRY_HOURS = 24
+MAX_RELOAD_ATTEMPTS = 3
+
+# Probe post-reload: recontar entidades a los 90s para cerrar el incidente
+# de inmediato (y medir downtime real) en vez de esperar el siguiente scan.
+PROBE_DELAY_SECONDS = 90
+
+# Flapping: zombie→sano→zombie en ciclo = problema físico, el reload maquilla.
+FLAP_WINDOW_HOURS = 24
+FLAP_MAX_HEALS = 3
+
+# Detección por eventos: transición a unavailable → chequeo dirigido con debounce.
+EVENT_DEBOUNCE_SECONDS = 60
+
+# Zombies a nivel device (0 = apagado): 100% de las entidades de un device
+# muertas > N horas. Señal pura, sin auto-heal (un device no se recarga).
+CONF_DEVICE_ZOMBIE_HOURS = "device_zombie_hours"
+DEFAULT_DEVICE_ZOMBIE_HOURS = 0
 
 STATUS_WATCHING = "vigilando"
 STATUS_ZOMBIE = "zombie"

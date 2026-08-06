@@ -26,7 +26,8 @@
           "stale_minutes": "Minutes without reporting to declare stale",
           "canary_entities": "Canaries: critical entities that heal their integration when they die",
           "canary_minutes": "Minutes a canary must be unavailable before healing",
-          "wan_entity": "WAN connectivity entity (optional: no internet, no cloud heals wasted)"
+          "wan_entity": "WAN connectivity entity (optional: no internet, no cloud heals wasted)",
+          "device_zombie_hours": "Device-zombie hours (0 = off): flag devices with ALL entities dead longer than this"
         }
       }
     }
@@ -44,6 +45,9 @@
       },
       "stale": {
         "name": "Stale"
+      },
+      "reauth": {
+        "name": "Reauth pending"
       }
     },
     "binary_sensor": {
@@ -59,7 +63,15 @@
     },
     "incurable": {
       "title": "Integration needs manual attention: {title}",
-      "description": "The integration **{title}** ({domain}) stayed dead after {attempts} automatic reloads. It likely needs re-authentication, a credential fix or physical attention. Velador will stop reloading it until it recovers."
+      "description": "The integration **{title}** ({domain}) stayed dead after {attempts} automatic reloads. It likely needs re-authentication, a credential fix or physical attention. Velador will stop reloading it until it recovers.",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Revive now",
+            "description": "Reset strikes and cooldowns and reload the integration right now. Use this after fixing the physical cause (reconnected the device, renewed credentials, power is back)."
+          }
+        }
+      }
     },
     "stale": {
       "title": "Stale sensor: {entity_id}",
@@ -68,6 +80,18 @@
     "reauth": {
       "title": "Re-authentication pending: {title}",
       "description": "The integration **{title}** ({domain}) has an open re-authentication flow — reloading will NOT cure it, it needs credentials. Velador will not waste reloads on it. Resolve the reauth in Settings → Devices & Services."
+    },
+    "storm": {
+      "title": "Storm: {count} integrations died together",
+      "description": "{count} integrations became zombies in the same scan ({titles}) at {time}. This is likely a power outage or network drop, not {count} independent failures. Velador is reloading them sequentially, spaced out, so they do not stampede a router that just rebooted."
+    },
+    "flapping": {
+      "title": "Unstable integration: {title}",
+      "description": "The integration **{title}** ({domain}) has been revived {count} times in the last {hours} hours. Reloading is masking a physical problem — check power, cabling, radio coverage or batteries. Auto-heal is suppressed until it stays stable."
+    },
+    "device_zombies": {
+      "title": "{count} device(s) completely dead",
+      "description": "Devices with ALL their entities unavailable for more than {hours} hours: {names}. The integration ratio never sees this (3 dead entities out of 40 is 7%). Check power, switch, battery or mesh for each device."
     }
   }
 }

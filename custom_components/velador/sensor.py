@@ -21,6 +21,7 @@ async def async_setup_entry(
             StaleCountSensor(coordinator),
             HealedTotalSensor(coordinator),
             WatchedSensor(coordinator),
+            ReauthPendingSensor(coordinator),
         ]
     )
 
@@ -55,6 +56,7 @@ class ZombieCountSensor(VeladorSensor):
         return {
             "zombies": self.coordinator.data.zombies,
             "incurables": self.coordinator.data.incurables,
+            "devices_muertos": self.coordinator.data.device_zombies,
         }
 
 
@@ -100,3 +102,23 @@ class StaleCountSensor(VeladorSensor):
     @property
     def extra_state_attributes(self) -> dict:
         return {"congelados": self.coordinator.data.stale}
+
+
+class ReauthPendingSensor(VeladorSensor):
+    """Reauth pendiente como entidad: el Repair nativo se descarta con un
+    clic y no vuelve; con entidad, el usuario construye SU señal."""
+
+    _attr_translation_key = "reauth"
+    _attr_icon = "mdi:key-alert"
+
+    def __init__(self, coordinator: VeladorCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.entry.entry_id}_reauth"
+
+    @property
+    def native_value(self) -> int:
+        return len(self.coordinator.data.reauth)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {"pendientes": self.coordinator.data.reauth}

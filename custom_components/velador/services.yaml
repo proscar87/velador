@@ -1,0 +1,22 @@
+heal:
+  name: Heal
+  description: >-
+    Force the heal cycle: resets strikes, cooldowns, incurable and flapping
+    state, then reloads. Without entry_id it heals everything currently sick
+    (zombies + incurables). Enables "when power comes back, heal everything"
+    as a user automation.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Specific config entry to heal. Omit to heal all current zombies and incurables.
+      required: false
+      example: 0123456789abcdef0123456789abcdef
+      selector:
+        text:
+
+audit:
+  name: Audit
+  description: >-
+    Returns the full watch table as response data (zombies, incurables, stale,
+    reauth pending, device zombies, totals) — consumable by scripts and
+    conversation agents without parsing entity attributes.
