@@ -1,15 +1,15 @@
 {
+  "domain": "velador",
+  "name": "Velador",
   "codeowners": [
     "@proscar87"
   ],
   "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/proscar87/velador",
-  "domain": "velador",
   "integration_type": "service",
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/proscar87/velador/issues",
-  "name": "Velador",
   "requirements": [],
   "single_config_entry": true,
   "version": "0.4.0"
