@@ -8,6 +8,7 @@ y caídas de nube: la integración "carga" pero queda muerta por dentro.
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -16,6 +17,7 @@ from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.loader import async_get_integration
 from homeassistant.util import dt as dt_util
@@ -58,6 +60,10 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+STORAGE_VERSION = 1
+STORAGE_KEY = f"{DOMAIN}.state"
+SAVE_DELAY_SECONDS = 10
+
 
 @dataclass
 class WatchState:
@@ -70,6 +76,33 @@ class WatchState:
     needs_reauth: bool = False
     healed_count: int = 0
     zombie_since: datetime | None = None
+
+    def as_dict(self) -> dict:
+        return {
+            "strikes": self.strikes,
+            "last_reload": self.last_reload.isoformat() if self.last_reload else None,
+            "reload_attempts": self.reload_attempts,
+            "incurable": self.incurable,
+            "needs_reauth": self.needs_reauth,
+            "healed_count": self.healed_count,
+            "zombie_since": self.zombie_since.isoformat() if self.zombie_since else None,
+        }
+
+    @classmethod
+    def from_dict(cls, raw: dict) -> "WatchState":
+        return cls(
+            strikes=int(raw.get("strikes", 0)),
+            last_reload=dt_util.parse_datetime(raw["last_reload"])
+            if raw.get("last_reload")
+            else None,
+            reload_attempts=int(raw.get("reload_attempts", 0)),
+            incurable=bool(raw.get("incurable", False)),
+            needs_reauth=bool(raw.get("needs_reauth", False)),
+            healed_count=int(raw.get("healed_count", 0)),
+            zombie_since=dt_util.parse_datetime(raw["zombie_since"])
+            if raw.get("zombie_since")
+            else None,
+        )
 
 
 @dataclass
@@ -101,6 +134,86 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
         self._wan_was_down = False
         self._started = dt_util.utcnow()
         self._healed_total = 0
+        self._store: Store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
+        self._last_saved: str | None = None
+
+    async def async_load_state(self) -> None:
+        """Restaurar la memoria de strikes/intentos/incurables de un arranque previo.
+
+        Sin esto, cada restart borra lo aprendido: un incurable conocido
+        re-quema 2 reloads + cooldowns para re-descubrir su diagnóstico
+        (observado en el update a HA 2026.8, 5-ago-2026).
+        """
+        raw = await self._store.async_load()
+        if not raw:
+            return
+        self._healed_total = int(raw.get("healed_total", 0))
+        restored = 0
+        for entry_id, watch_raw in (raw.get("watch") or {}).items():
+            # Solo restaurar entries que siguen existiendo.
+            if self.hass.config_entries.async_get_entry(entry_id) is None:
+                continue
+            try:
+                self._watch[entry_id] = WatchState.from_dict(watch_raw)
+                restored += 1
+            except (TypeError, ValueError, KeyError):  # dato corrupto: empezar de cero
+                continue
+        if restored:
+            incurables = sum(1 for w in self._watch.values() if w.incurable)
+            _LOGGER.info(
+                "Memoria restaurada: %s entries (%s incurables conocidos)",
+                restored,
+                incurables,
+            )
+        # Los Repairs no sobreviven un restart: re-crear la señal de los
+        # incurables/reauth restaurados para que no queden mudos.
+        for entry_id, watch in self._watch.items():
+            if not (watch.incurable or watch.needs_reauth):
+                continue
+            config_entry = self.hass.config_entries.async_get_entry(entry_id)
+            if config_entry is None:
+                continue
+            if watch.incurable:
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    f"zombie_{entry_id}",
+                    is_fixable=False,
+                    severity=ir.IssueSeverity.ERROR,
+                    translation_key="incurable",
+                    translation_placeholders={
+                        "title": config_entry.title,
+                        "domain": config_entry.domain,
+                        "attempts": str(watch.reload_attempts),
+                    },
+                )
+            if watch.needs_reauth:
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    f"reauth_{entry_id}",
+                    is_fixable=False,
+                    severity=ir.IssueSeverity.ERROR,
+                    translation_key="reauth",
+                    translation_placeholders={
+                        "title": config_entry.title,
+                        "domain": config_entry.domain,
+                    },
+                )
+
+    def _dump_state(self) -> dict:
+        return {
+            "healed_total": self._healed_total,
+            "watch": {eid: w.as_dict() for eid, w in self._watch.items()},
+        }
+
+    def _save_state(self) -> None:
+        """Persistir solo si algo cambió (dirty-check para no moler la flash)."""
+        snapshot = json.dumps(self._dump_state(), sort_keys=True)
+        if snapshot == self._last_saved:
+            return
+        self._last_saved = snapshot
+        self._store.async_delay_save(self._dump_state, SAVE_DELAY_SECONDS)
 
     def _opt(self, key: str, default):
         return self.entry.options.get(key, default)
@@ -245,6 +358,7 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
         await self._scan_canaries(data, wan_down)
         await self._scan_stale(data, wan_down)
         data.healed_total = self._healed_total
+        self._save_state()
         return data
 
     async def _heal_owner(

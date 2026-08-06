@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0 — 2026-08-06
+
+- **Memoria persistente (Store):** strikes, intentos de reload, incurables, reauth pendiente, cooldowns y el contador de revividas sobreviven restarts de HA y recargas del entry (cambiar Opciones ya no borra lo aprendido). Un incurable conocido despierta como incurable — ya no re-quema 2 reloads + cooldowns para re-descubrir su diagnóstico. Motivación: el update a HA 2026.8 (5-ago) reseteó la memoria y los 2 incurables conocidos de la casa origen volvieron a "intento 1".
+- **Repairs re-creados al arrancar:** los issues de incurable/reauth no sobreviven restarts en HA; ahora se re-emiten al restaurar la memoria para que la señal nunca quede muda.
+- Guardado con dirty-check y delay (no muele la flash: solo escribe cuando algo cambió).
+- Entries que ya no existen se descartan de la memoria al cargar.
+
 ## 0.3.0 — 2026-08-04
 
 - **Canarios por entidad:** lista de entidades críticas que, al llevar N min `unavailable`, curan su config entry directo — caza la muerte PARCIAL que el ratio 90% nunca ve (1 CT muerto de 4).
