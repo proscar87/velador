@@ -8,15 +8,21 @@ y caídas de nube: la integración "carga" pero queda muerta por dentro.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import random
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
+from homeassistant.components.automation import automations_with_entity
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.loader import async_get_integration
@@ -24,14 +30,28 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     ALWAYS_IGNORED_DOMAINS,
+    BACKOFF_MINUTES,
     CONF_CANARY_ENTITIES,
     CONF_CANARY_MINUTES,
+    CONF_DEVICE_ZOMBIE_HOURS,
     CONF_STALE_ENTITIES,
     CONF_STALE_MINUTES,
     CONF_WAN_ENTITY,
     DEFAULT_CANARY_MINUTES,
+    DEFAULT_DEVICE_ZOMBIE_HOURS,
+    EVENT_DEBOUNCE_SECONDS,
+    EVENT_DEVICE_ZOMBIE,
+    EVENT_FLAPPING,
     EVENT_REAUTH_NEEDED,
+    EVENT_STORM_DETECTED,
+    FLAP_MAX_HEALS,
+    FLAP_WINDOW_HOURS,
     HUB_DOMAINS_NO_RELOAD,
+    INCURABLE_RETRY_HOURS,
+    MAX_RELOAD_ATTEMPTS,
+    PROBE_DELAY_SECONDS,
+    STORM_RELOAD_SPACING_SECONDS,
+    STORM_THRESHOLD,
     DEFAULT_STALE_MINUTES,
     EVENT_STALE_DETECTED,
     EVENT_STALE_RECOVERED,
@@ -53,9 +73,6 @@ from .const import (
     EVENT_INCURABLE,
     EVENT_ZOMBIE_DETECTED,
     SCAN_INTERVAL_MINUTES,
-    STATUS_HEALING,
-    STATUS_INCURABLE,
-    STATUS_ZOMBIE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -76,6 +93,9 @@ class WatchState:
     needs_reauth: bool = False
     healed_count: int = 0
     zombie_since: datetime | None = None
+    heal_history: list[datetime] = field(default_factory=list)
+    flapping: bool = False
+    reauth_since: datetime | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -86,6 +106,9 @@ class WatchState:
             "needs_reauth": self.needs_reauth,
             "healed_count": self.healed_count,
             "zombie_since": self.zombie_since.isoformat() if self.zombie_since else None,
+            "heal_history": [t.isoformat() for t in self.heal_history],
+            "flapping": self.flapping,
+            "reauth_since": self.reauth_since.isoformat() if self.reauth_since else None,
         }
 
     @classmethod
@@ -102,6 +125,17 @@ class WatchState:
             zombie_since=dt_util.parse_datetime(raw["zombie_since"])
             if raw.get("zombie_since")
             else None,
+            heal_history=[
+                t
+                for t in (
+                    dt_util.parse_datetime(x) for x in raw.get("heal_history", [])
+                )
+                if t
+            ],
+            flapping=bool(raw.get("flapping", False)),
+            reauth_since=dt_util.parse_datetime(raw["reauth_since"])
+            if raw.get("reauth_since")
+            else None,
         )
 
 
@@ -112,6 +146,8 @@ class VeladorData:
     zombies: list[dict] = field(default_factory=list)
     incurables: list[dict] = field(default_factory=list)
     stale: list[dict] = field(default_factory=list)
+    reauth: list[dict] = field(default_factory=list)
+    device_zombies: list[dict] = field(default_factory=list)
     watched: int = 0
     healed_total: int = 0
     last_scan: datetime | None = None
@@ -136,6 +172,91 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
         self._healed_total = 0
         self._store: Store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
         self._last_saved: str | None = None
+        self._device_zombies_active: set[str] = set()
+        self._event_refresh_pending = False
+
+    @callback
+    def async_start(self) -> "callable":
+        """Detección por eventos: transición a unavailable → chequeo con debounce.
+
+        Baja el peor caso de ~15 min (3 scans) a ~1-6 min. El scan periódico
+        queda de red de seguridad y para stale/canarios.
+        """
+
+        @callback
+        def _on_state_changed(event: Event) -> None:
+            new_state = event.data.get("new_state")
+            old_state = event.data.get("old_state")
+            if (
+                new_state is None
+                or old_state is None
+                or new_state.state != "unavailable"
+                or old_state.state in ("unavailable", "unknown")
+            ):
+                return
+            if self._event_refresh_pending:
+                return
+            self._event_refresh_pending = True
+
+            @callback
+            def _debounced(_now) -> None:
+                self._event_refresh_pending = False
+                self.hass.async_create_task(self.async_request_refresh())
+
+            async_call_later(self.hass, EVENT_DEBOUNCE_SECONDS, _debounced)
+
+        return self.hass.bus.async_listen("state_changed", _on_state_changed)
+
+    async def async_service_heal(self, entry_id: str | None = None) -> dict:
+        """Servicio velador.heal: forzar el ciclo reseteando strikes/cooldowns.
+
+        Sin entry_id: cura todo lo actualmente enfermo (zombies + incurables).
+        Habilita "cuando vuelva la luz, cura todo" como automatización.
+        """
+        targets: list[str] = []
+        if entry_id:
+            targets = [entry_id]
+        else:
+            targets = [
+                info["entry_id"]
+                for info in (self.data.zombies + self.data.incurables)
+            ]
+        healed: list[str] = []
+        for target in targets:
+            config_entry = self.hass.config_entries.async_get_entry(target)
+            if config_entry is None:
+                continue
+            watch = self._watch.setdefault(target, WatchState())
+            watch.reload_attempts = 0
+            watch.last_reload = None
+            watch.incurable = False
+            watch.flapping = False
+            ir.async_delete_issue(self.hass, DOMAIN, f"flapping_{target}")
+            _LOGGER.info(
+                "velador.heal: ciclo forzado sobre %s (%s)",
+                config_entry.title,
+                config_entry.domain,
+            )
+            self.hass.async_create_task(
+                self.hass.config_entries.async_reload(target)
+            )
+            healed.append(config_entry.title)
+        self._save_state()
+        return {"healed": healed}
+
+    def audit_snapshot(self) -> dict:
+        """Servicio velador.audit: el dict completo, consumible sin parsear atributos."""
+        data = self.data
+        return {
+            "zombies": data.zombies,
+            "incurables": data.incurables,
+            "stale": data.stale,
+            "reauth": data.reauth,
+            "device_zombies": data.device_zombies,
+            "watched": data.watched,
+            "healed_total": data.healed_total,
+            "last_scan": data.last_scan.isoformat() if data.last_scan else None,
+        }
 
     async def async_load_state(self) -> None:
         """Restaurar la memoria de strikes/intentos/incurables de un arranque previo.
@@ -178,7 +299,7 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
                     self.hass,
                     DOMAIN,
                     f"zombie_{entry_id}",
-                    is_fixable=False,
+                    is_fixable=True,
                     severity=ir.IssueSeverity.ERROR,
                     translation_key="incurable",
                     translation_placeholders={
@@ -278,34 +399,55 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
                 entities_by_entry.setdefault(reg_entry.config_entry_id, []).append(reg_entry)
 
         seen_entry_ids: set[str] = set()
+        new_zombies: list[tuple[ConfigEntry, WatchState, dict]] = []
+        heal_queue: list[tuple[ConfigEntry, WatchState, dict]] = []
 
         for config_entry in self.hass.config_entries.async_entries():
             if config_entry.domain in excluded:
                 continue
-            if config_entry.state is not ConfigEntryState.LOADED:
+            setup_error = config_entry.state is ConfigEntryState.SETUP_ERROR
+            if config_entry.state is not ConfigEntryState.LOADED and not setup_error:
+                # SETUP_RETRY y demás: el retry nativo de HA ya corre; templanza.
                 continue
 
             ents = entities_by_entry.get(config_entry.entry_id, [])
             total = 0
             dead = 0
             dead_examples: list[str] = []
-            for reg_entry in ents:
-                state = self.hass.states.get(reg_entry.entity_id)
-                if state is None:
-                    continue
-                total += 1
-                if state.state == "unavailable":
-                    dead += 1
-                    if len(dead_examples) < 5:
-                        dead_examples.append(reg_entry.entity_id)
+            if setup_error:
+                # Entry que no cargó: cero entidades vivas por definición.
+                total = dead = max(len(ents), 1)
+                dead_examples = [r.entity_id for r in ents[:5]]
+            else:
+                for reg_entry in ents:
+                    state = self.hass.states.get(reg_entry.entity_id)
+                    if state is None:
+                        continue
+                    total += 1
+                    if state.state == "unavailable":
+                        dead += 1
+                        if len(dead_examples) < 5:
+                            dead_examples.append(reg_entry.entity_id)
 
-            if total < min_entities:
-                continue
+                if total < min_entities:
+                    continue
 
             seen_entry_ids.add(config_entry.entry_id)
             data.watched += 1
             watch = self._watch.setdefault(config_entry.entry_id, WatchState())
-            is_zombie = (dead / total) >= threshold
+            is_zombie = setup_error or (dead / total) >= threshold
+
+            if watch.needs_reauth:
+                data.reauth.append(
+                    {
+                        "entry_id": config_entry.entry_id,
+                        "domain": config_entry.domain,
+                        "title": config_entry.title,
+                        "since": watch.reauth_since.isoformat()
+                        if watch.reauth_since
+                        else None,
+                    }
+                )
 
             if is_zombie and wan_down and await self._is_cloud(config_entry.domain):
                 # Sin internet la falla es del entorno: congelar juicio y curas.
@@ -318,6 +460,7 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
                 watch.strikes = 0
                 watch.incurable = False
                 watch.zombie_since = None
+                self._maybe_clear_flapping(config_entry, watch)
                 continue
 
             watch.strikes += 1
@@ -335,19 +478,45 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
                 "examples": dead_examples,
                 "zombie_since": watch.zombie_since.isoformat(),
                 "reload_attempts": watch.reload_attempts,
+                "setup_error": setup_error,
+                "flapping": watch.flapping,
+                "automations_ciegas": self._blind_automations(dead_examples),
             }
 
             if watch.incurable:
                 data.incurables.append(info)
+                # Circuit breaker half-open: probe espaciado (1×/24h) en vez
+                # de terminal — muchos incurables de nube sanan solos.
+                if auto_heal:
+                    heal_queue.append((config_entry, watch, info))
                 continue
 
             data.zombies.append(info)
 
             if watch.strikes == strikes_needed:
-                self._on_zombie_detected(config_entry, info)
+                new_zombies.append((config_entry, watch, info))
 
             if auto_heal:
-                await self._maybe_heal(config_entry, watch, cooldown, info)
+                heal_queue.append((config_entry, watch, info))
+
+        # Modo tormenta: N zombies NUEVOS en el mismo escaneo no son N fallas,
+        # es un apagón o caída de red. Un Repair agregado y curación escalonada.
+        storm = len(new_zombies) >= STORM_THRESHOLD
+        if storm:
+            self._on_storm(new_zombies)
+        else:
+            for storm_entry, _watch, storm_info in new_zombies:
+                self._on_zombie_detected(storm_entry, storm_info)
+
+        if heal_queue:
+            if storm:
+                self.hass.async_create_task(self._heal_sequential(heal_queue))
+            else:
+                for heal_entry, heal_watch, heal_info in heal_queue:
+                    await self._maybe_heal(heal_entry, heal_watch, heal_info)
+
+        if not data.zombies and not data.incurables:
+            ir.async_delete_issue(self.hass, DOMAIN, "storm")
 
         # Limpiar entries que ya no existen.
         for entry_id in list(self._watch):
@@ -357,9 +526,80 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
 
         await self._scan_canaries(data, wan_down)
         await self._scan_stale(data, wan_down)
+        await self._scan_device_zombies(data)
         data.healed_total = self._healed_total
         self._save_state()
         return data
+
+    def _blind_automations(self, entity_ids: list[str]) -> list[str]:
+        """Radio de daño: automatizaciones que dependen de las entidades muertas."""
+        blind: set[str] = set()
+        for entity_id in entity_ids:
+            try:
+                blind.update(automations_with_entity(self.hass, entity_id))
+            except Exception:  # noqa: BLE001 — automation no cargado aún
+                break
+        return sorted(blind)[:10]
+
+    def _maybe_clear_flapping(self, config_entry: ConfigEntry, watch: WatchState) -> None:
+        """Liberar el estado inestable cuando la ventana de recaídas quedó vacía."""
+        if not watch.flapping:
+            return
+        now = dt_util.utcnow()
+        watch.heal_history = [
+            t for t in watch.heal_history if now - t < timedelta(hours=FLAP_WINDOW_HOURS)
+        ]
+        if len(watch.heal_history) < FLAP_MAX_HEALS:
+            watch.flapping = False
+            ir.async_delete_issue(self.hass, DOMAIN, f"flapping_{config_entry.entry_id}")
+            _LOGGER.info(
+                "%s (%s) estable otra vez: auto-heal re-habilitado",
+                config_entry.title,
+                config_entry.domain,
+            )
+
+    def _on_storm(
+        self, new_zombies: list[tuple[ConfigEntry, WatchState, dict]]
+    ) -> None:
+        titles = ", ".join(ce.title for ce, _w, _i in new_zombies)
+        at_local = dt_util.now().strftime("%H:%M")
+        _LOGGER.warning(
+            "MODO TORMENTA: %s integraciones cayeron juntas (%s) — probable "
+            "apagón o caída de red; curación escalonada",
+            len(new_zombies),
+            titles,
+        )
+        self.hass.bus.async_fire(
+            EVENT_STORM_DETECTED,
+            {
+                "count": len(new_zombies),
+                "at": at_local,
+                "entries": [info for _ce, _w, info in new_zombies],
+            },
+        )
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            "storm",
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="storm",
+            translation_placeholders={
+                "count": str(len(new_zombies)),
+                "titles": titles,
+                "time": at_local,
+            },
+        )
+
+    async def _heal_sequential(
+        self, queue: list[tuple[ConfigEntry, WatchState, dict]]
+    ) -> None:
+        """Reloads espaciados: 10 reloads simultáneos contra un router recién
+        booteado producen exactamente el segundo strike falso."""
+        for index, (config_entry, watch, info) in enumerate(queue):
+            if index:
+                await asyncio.sleep(STORM_RELOAD_SPACING_SECONDS)
+            await self._maybe_heal(config_entry, watch, info)
 
     async def _heal_owner(
         self, entry_id: str | None, data: VeladorData, wan_down: bool, info: dict
@@ -380,16 +620,13 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
         if not self._opt(CONF_AUTO_HEAL, DEFAULT_AUTO_HEAL):
             return
         watch = self._watch.setdefault(entry_id, WatchState())
-        if watch.incurable:
-            return
-        cooldown = timedelta(hours=self._opt(CONF_COOLDOWN_HOURS, DEFAULT_COOLDOWN_HOURS))
         full_info = {
             "entry_id": entry_id,
             "domain": config_entry.domain,
             "title": config_entry.title,
             **info,
         }
-        await self._maybe_heal(config_entry, watch, cooldown, full_info)
+        await self._maybe_heal(config_entry, watch, full_info)
 
     async def _scan_canaries(self, data: VeladorData, wan_down: bool) -> None:
         """Canarios: entidades críticas que curan su entry sin esperar el ratio.
@@ -483,6 +720,96 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
                     },
                 )
 
+    async def _scan_device_zombies(self, data: VeladorData) -> None:
+        """Zombies a nivel device: el punto ciego matemático del ratio.
+
+        3 sensores muertos de 40 = 7%, integración "sana", y la luz del baño
+        no prende. Señal pura, sin auto-heal — un device no se recarga.
+        """
+        hours = self._opt(CONF_DEVICE_ZOMBIE_HOURS, DEFAULT_DEVICE_ZOMBIE_HOURS)
+        if not hours:
+            return
+        max_age = timedelta(hours=hours)
+        now = dt_util.utcnow()
+        registry = er.async_get(self.hass)
+        device_registry = dr.async_get(self.hass)
+        area_registry = ar.async_get(self.hass)
+        excluded = self._excluded_domains
+
+        by_device: dict[str, list] = {}
+        for reg_entry in registry.entities.values():
+            if not reg_entry.device_id or reg_entry.disabled_by:
+                continue
+            by_device.setdefault(reg_entry.device_id, []).append(reg_entry)
+
+        current: set[str] = set()
+        for device_id, ents in by_device.items():
+            states = [self.hass.states.get(r.entity_id) for r in ents]
+            states = [s for s in states if s is not None]
+            if len(states) < 2:
+                continue
+            if not all(
+                s.state == "unavailable" and now - s.last_changed > max_age
+                for s in states
+            ):
+                continue
+            device = device_registry.async_get(device_id)
+            if device is None:
+                continue
+            if any(
+                self.hass.config_entries.async_get_entry(ce_id) is not None
+                and self.hass.config_entries.async_get_entry(ce_id).domain in excluded
+                for ce_id in device.config_entries
+            ):
+                continue
+            area = (
+                area_registry.async_get_area(device.area_id) if device.area_id else None
+            )
+            info = {
+                "device_id": device_id,
+                "name": device.name_by_user or device.name,
+                "area": area.name if area else None,
+                "entities": [s.entity_id for s in states][:8],
+                "dead_hours": int(
+                    max(
+                        (now - s.last_changed).total_seconds() for s in states
+                    )
+                    // 3600
+                ),
+            }
+            data.device_zombies.append(info)
+            current.add(device_id)
+            if device_id not in self._device_zombies_active:
+                self.hass.bus.async_fire(EVENT_DEVICE_ZOMBIE, info)
+                _LOGGER.warning(
+                    "Device muerto: %s (%s) — %s entidades unavailable > %sh",
+                    info["name"],
+                    info["area"] or "sin área",
+                    len(states),
+                    hours,
+                )
+        self._device_zombies_active = current
+        if current:
+            names = ", ".join(
+                f"{d['name']} ({d['area']})" if d["area"] else str(d["name"])
+                for d in data.device_zombies[:10]
+            )
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                "device_zombies",
+                is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key="device_zombies",
+                translation_placeholders={
+                    "count": str(len(current)),
+                    "names": names,
+                    "hours": str(hours),
+                },
+            )
+        else:
+            ir.async_delete_issue(self.hass, DOMAIN, "device_zombies")
+
     def _stale_recover(self, entity_id: str, issue_id: str, silent: bool) -> None:
         if entity_id in self._stale_active:
             self._stale_active.discard(entity_id)
@@ -515,16 +842,62 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
             },
         )
 
+    def _backoff_delta(self, attempts: int) -> timedelta:
+        """Backoff exponencial con jitter; el último escalón es cooldown_hours."""
+        steps = list(BACKOFF_MINUTES) + [
+            self._opt(CONF_COOLDOWN_HOURS, DEFAULT_COOLDOWN_HOURS) * 60
+        ]
+        minutes = steps[min(attempts - 1, len(steps) - 1)]
+        return timedelta(minutes=minutes * random.uniform(0.9, 1.15))
+
+    def _count_dead(self, config_entry: ConfigEntry) -> tuple[int, int]:
+        registry = er.async_get(self.hass)
+        dead = 0
+        total = 0
+        for reg_entry in registry.entities.values():
+            if (
+                reg_entry.config_entry_id != config_entry.entry_id
+                or reg_entry.disabled_by
+            ):
+                continue
+            state = self.hass.states.get(reg_entry.entity_id)
+            if state is None:
+                continue
+            total += 1
+            if state.state == "unavailable":
+                dead += 1
+        return dead, total
+
+    async def _probe_after_reload(self, entry_id: str) -> None:
+        """Probe post-reload: cerrar el incidente a los 90s, no al siguiente scan."""
+        config_entry = self.hass.config_entries.async_get_entry(entry_id)
+        if config_entry is None or config_entry.state is not ConfigEntryState.LOADED:
+            return
+        watch = self._watch.get(entry_id)
+        if watch is None or watch.strikes == 0:
+            return  # ya resuelto por otra vía
+        dead, total = self._count_dead(config_entry)
+        if total == 0:
+            return  # entidades aún levantando; que juzgue el próximo scan
+        if (dead / total) >= self._opt(CONF_THRESHOLD, DEFAULT_THRESHOLD):
+            return  # sigue muerto; el scan reintentará según backoff
+        self._on_healed(config_entry, watch)
+        watch.strikes = 0
+        watch.incurable = False
+        watch.zombie_since = None
+        self._save_state()
+        await self.async_request_refresh()
+
     async def _maybe_heal(
         self,
         config_entry: ConfigEntry,
         watch: WatchState,
-        cooldown: timedelta,
         info: dict,
     ) -> None:
         if self._reauth_pending(config_entry.entry_id):
             if not watch.needs_reauth:
                 watch.needs_reauth = True
+                watch.reauth_since = dt_util.utcnow()
                 _LOGGER.warning(
                     "%s (%s) tiene reauth pendiente: el reload no cura eso, "
                     "se requieren credenciales",
@@ -546,34 +919,56 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
                 )
             return
 
-        now = dt_util.utcnow()
-        if watch.last_reload and now - watch.last_reload < cooldown:
+        if watch.flapping:
+            # Estado inestable: el reload maquilla un problema físico
+            # (corriente, cable, RF, pila). No quemar más curas.
             return
-        if watch.reload_attempts >= 2:
-            # Dos reloads sin revivir = no se cura con reload (token vencido,
-            # reauth pendiente, hardware muerto). Dejar de martillar.
-            watch.incurable = True
-            _LOGGER.error(
-                "Zombie incurable: %s (%s) — %s reloads sin efecto, requiere manos",
+
+        now = dt_util.utcnow()
+
+        if watch.incurable:
+            # Half-open: un probe espaciado — muchos incurables de nube
+            # sanan solos cuando el proveedor vuelve.
+            if watch.last_reload and now - watch.last_reload < timedelta(
+                hours=INCURABLE_RETRY_HOURS
+            ):
+                return
+            _LOGGER.info(
+                "Probe half-open a incurable %s (%s)",
                 config_entry.title,
                 config_entry.domain,
-                watch.reload_attempts,
             )
-            self.hass.bus.async_fire(EVENT_INCURABLE, info)
-            ir.async_create_issue(
-                self.hass,
-                DOMAIN,
-                f"zombie_{config_entry.entry_id}",
-                is_fixable=False,
-                severity=ir.IssueSeverity.ERROR,
-                translation_key="incurable",
-                translation_placeholders={
-                    "title": config_entry.title,
-                    "domain": config_entry.domain,
-                    "attempts": str(watch.reload_attempts),
-                },
-            )
-            return
+        else:
+            if watch.reload_attempts >= MAX_RELOAD_ATTEMPTS:
+                # Agotó la escalera de backoff: incurable, pero NO terminal —
+                # pasa a reintento espaciado 1×/24h (half-open).
+                watch.incurable = True
+                _LOGGER.error(
+                    "Zombie incurable: %s (%s) — %s reloads sin efecto; "
+                    "reintento espaciado 1×/%sh",
+                    config_entry.title,
+                    config_entry.domain,
+                    watch.reload_attempts,
+                    INCURABLE_RETRY_HOURS,
+                )
+                self.hass.bus.async_fire(EVENT_INCURABLE, info)
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    f"zombie_{config_entry.entry_id}",
+                    is_fixable=True,
+                    severity=ir.IssueSeverity.ERROR,
+                    translation_key="incurable",
+                    translation_placeholders={
+                        "title": config_entry.title,
+                        "domain": config_entry.domain,
+                        "attempts": str(watch.reload_attempts),
+                    },
+                )
+                return
+            if watch.reload_attempts and watch.last_reload:
+                if now - watch.last_reload < self._backoff_delta(watch.reload_attempts):
+                    return
 
         watch.last_reload = now
         watch.reload_attempts += 1
@@ -587,20 +982,82 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
         self.hass.async_create_task(
             self.hass.config_entries.async_reload(config_entry.entry_id)
         )
+        entry_id = config_entry.entry_id
+
+        @callback
+        def _schedule_probe(_now) -> None:
+            self.hass.async_create_task(self._probe_after_reload(entry_id))
+
+        async_call_later(self.hass, PROBE_DELAY_SECONDS, _schedule_probe)
 
     def _on_healed(self, config_entry: ConfigEntry, watch: WatchState) -> None:
+        now = dt_util.utcnow()
+        attempts_used = watch.reload_attempts
+        downtime_min = (
+            int((now - watch.zombie_since).total_seconds() // 60)
+            if watch.zombie_since
+            else None
+        )
         watch.healed_count += 1
         watch.reload_attempts = 0
         watch.needs_reauth = False
+        watch.reauth_since = None
+        watch.heal_history = [
+            t for t in watch.heal_history if now - t < timedelta(hours=FLAP_WINDOW_HOURS)
+        ]
+        watch.heal_history.append(now)
         ir.async_delete_issue(self.hass, DOMAIN, f"reauth_{config_entry.entry_id}")
         self._healed_total += 1
-        _LOGGER.info("Revivió: %s (%s)", config_entry.title, config_entry.domain)
+        _LOGGER.info(
+            "Revivió: %s (%s) — downtime %s min, %s intento(s)",
+            config_entry.title,
+            config_entry.domain,
+            downtime_min if downtime_min is not None else "?",
+            attempts_used,
+        )
         self.hass.bus.async_fire(
             EVENT_HEALED,
             {
                 "entry_id": config_entry.entry_id,
                 "domain": config_entry.domain,
                 "title": config_entry.title,
+                "downtime_min": downtime_min,
+                "attempts_used": attempts_used,
             },
         )
         ir.async_delete_issue(self.hass, DOMAIN, f"zombie_{config_entry.entry_id}")
+
+        if len(watch.heal_history) >= FLAP_MAX_HEALS and not watch.flapping:
+            # Recae una y otra vez: el reload no es la cura, esto es físico.
+            watch.flapping = True
+            _LOGGER.warning(
+                "FLAPPING: %s (%s) revivió %s veces en %sh — auto-heal "
+                "suprimido, revisar corriente/cable/RF/pila",
+                config_entry.title,
+                config_entry.domain,
+                len(watch.heal_history),
+                FLAP_WINDOW_HOURS,
+            )
+            self.hass.bus.async_fire(
+                EVENT_FLAPPING,
+                {
+                    "entry_id": config_entry.entry_id,
+                    "domain": config_entry.domain,
+                    "title": config_entry.title,
+                    "heals_window": len(watch.heal_history),
+                },
+            )
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                f"flapping_{config_entry.entry_id}",
+                is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key="flapping",
+                translation_placeholders={
+                    "title": config_entry.title,
+                    "domain": config_entry.domain,
+                    "count": str(len(watch.heal_history)),
+                    "hours": str(FLAP_WINDOW_HOURS),
+                },
+            )

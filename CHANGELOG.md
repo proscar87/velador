@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.5.0 — 2026-08-06
+
+Completa las olas v0.4 ("curar mejor, no más") y v0.5 ("señal más fina, superficie estándar") del ROADMAP.
+
+**Curar mejor (v0.4):**
+- **Modo tormenta:** ≥3 zombies nuevos en el mismo escaneo = apagón/caída de red, no N fallas — UN Repair agregado, evento `velador_storm_detected`, y reloads SECUENCIALES espaciados 30s (10 reloads simultáneos contra un router recién booteado producen el segundo strike falso).
+- **Circuit breaker:** backoff exponencial con jitter entre reloads (30min → 2h → cooldown_hours como último escalón) e "incurable" deja de ser terminal: probe half-open 1×/24h — muchos incurables de nube sanan solos cuando el proveedor vuelve.
+- **Flapping:** ≥3 revividas en 24h = inestable — el reload maquilla un problema físico (corriente/cable/RF/pila). Auto-heal suprimido + Repair + evento `velador_flapping`; se libera solo al estabilizarse.
+- **SETUP_ERROR vigilado:** entries que no cargaron entran a la misma escalera (con conciencia de reauth). En SETUP_RETRY, templanza: el retry nativo ya corre.
+- **Probe post-reload con MTTR:** a los 90s se recuenta el entry; si revivió, el incidente cierra YA y `velador_healed` trae `downtime_min` + `attempts_used`.
+
+**Señal más fina (v0.5):**
+- **Zombies a nivel device** (opcional, `device_zombie_hours` — 0 = apagado): devices con TODAS sus entidades muertas > N horas → Repair agregado con nombre y área + evento `velador_device_zombie`. El punto ciego matemático del ratio (3 de 40 = 7% = "sana").
+- **Radio de daño:** cada zombie/stale enumera las `automations_ciegas` que dependen de sus entidades muertas (vía `automations_with_entity`, sin parsear YAML) — en evento y atributos.
+- **Servicios `velador.heal` y `velador.audit`:** heal fuerza el ciclo (resetea strikes/cooldowns/incurable/flapping y recarga; sin entry_id cura todo lo enfermo — habilita "volvió la luz → cura todo"); audit regresa el dict completo con `supports_response`.
+- **Repairs arreglables:** el incurable trae botón **"Revivir ahora"** (RepairsFlow) — arreglaste la causa física, un clic y listo.
+- **`sensor.velador_reauth_pendientes`:** reauth como entidad con antigüedad (el Repair nativo se descarta con un clic y no vuelve).
+- **Detección por eventos:** transición a `unavailable` → chequeo con debounce 60s. El peor caso baja de ~15 min a ~1-6 min; el scan de 5 min queda de red de seguridad.
+- **`diagnostics.py`:** tabla de vigilancia completa descargable para issues de GitHub.
+
 ## 0.4.0 — 2026-08-06
 
 - **Memoria persistente (Store):** strikes, intentos de reload, incurables, reauth pendiente, cooldowns y el contador de revividas sobreviven restarts de HA y recargas del entry (cambiar Opciones ya no borra lo aprendido). Un incurable conocido despierta como incurable — ya no re-quema 2 reloads + cooldowns para re-descubrir su diagnóstico. Motivación: el update a HA 2026.8 (5-ago) reseteó la memoria y los 2 incurables conocidos de la casa origen volvieron a "intento 1".

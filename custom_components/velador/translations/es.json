@@ -26,7 +26,8 @@
           "stale_minutes": "Minutos sin reportar para declarar congelado",
           "canary_entities": "Canarios: entidades críticas que curan su integración al morir",
           "canary_minutes": "Minutos unavailable de un canario antes de curar",
-          "wan_entity": "Entidad de conectividad WAN (opcional: sin internet no se gastan curas cloud)"
+          "wan_entity": "Entidad de conectividad WAN (opcional: sin internet no se gastan curas cloud)",
+          "device_zombie_hours": "Horas para device-zombie (0 = apagado): marcar devices con TODAS sus entidades muertas más de esto"
         }
       }
     }
@@ -44,6 +45,9 @@
       },
       "stale": {
         "name": "Congelados"
+      },
+      "reauth": {
+        "name": "Reauth pendiente"
       }
     },
     "binary_sensor": {
@@ -59,7 +63,15 @@
     },
     "incurable": {
       "title": "Integración necesita manos: {title}",
-      "description": "La integración **{title}** ({domain}) siguió muerta tras {attempts} recargas automáticas. Probablemente necesita re-autenticación, arreglo de credenciales o atención física. Velador dejará de recargarla hasta que se recupere."
+      "description": "La integración **{title}** ({domain}) siguió muerta tras {attempts} recargas automáticas. Probablemente necesita re-autenticación, arreglo de credenciales o atención física. Velador dejará de recargarla hasta que se recupere.",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Revivir ahora",
+            "description": "Resetear strikes y cooldowns y recargar la integración ahora mismo. Úsalo después de arreglar la causa física (reconectaste el aparato, renovaste credenciales, volvió la luz)."
+          }
+        }
+      }
     },
     "stale": {
       "title": "Sensor congelado: {entity_id}",
@@ -68,6 +80,18 @@
     "reauth": {
       "title": "Reautenticación pendiente: {title}",
       "description": "La integración **{title}** ({domain}) tiene un flujo de reautenticación abierto — recargarla NO la va a curar, necesita credenciales. Velador no gastará reloads en ella. Resuelve el reauth en Ajustes → Dispositivos y servicios."
+    },
+    "storm": {
+      "title": "Tormenta: {count} integraciones cayeron juntas",
+      "description": "{count} integraciones se volvieron zombies en el mismo escaneo ({titles}) a las {time}. Probablemente es un apagón o caída de red, no {count} fallas independientes. Velador las está recargando en secuencia, espaciadas, para no estampidar un router recién booteado."
+    },
+    "flapping": {
+      "title": "Integración inestable: {title}",
+      "description": "La integración **{title}** ({domain}) ha revivido {count} veces en las últimas {hours} horas. El reload está maquillando un problema físico — revisa corriente, cableado, cobertura de radio o pilas. El auto-heal queda suprimido hasta que se estabilice."
+    },
+    "device_zombies": {
+      "title": "{count} device(s) completamente muertos",
+      "description": "Devices con TODAS sus entidades unavailable por más de {hours} horas: {names}. El ratio de la integración nunca ve esto (3 entidades muertas de 40 es 7%). Revisa corriente, apagador, pila o malla de cada uno."
     }
   }
 }

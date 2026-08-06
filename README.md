@@ -19,6 +19,7 @@ Velador does three things:
 | `sensor.velador_congelados` | Stale sensors currently detected, detail in attributes |
 | `sensor.velador_revividas_total` | Integrations healed since last HA start |
 | `sensor.velador_integraciones_vigiladas` | How many entries are being watched (disabled by default) |
+| `sensor.velador_reauth_pendientes` | Integrations with an open reauth flow (reload won't fix them), with age — build YOUR signal from it |
 
 ## Events (for your own automations)
 
@@ -28,6 +29,10 @@ Velador does three things:
 - `velador_stale_detected` — `{entity_id, state, last_reported, minutes_stale}`
 - `velador_stale_recovered` — `{entity_id}`
 - `velador_reauth_needed` — `{entry_id, domain, title, ...}` (reload won't fix it; credentials will)
+- `velador_storm_detected` — `{count, at, entries}` (≥3 new zombies in one scan = outage, not N failures)
+- `velador_flapping` — `{entry_id, domain, title, heals_window}` (revives over and over: the problem is physical)
+- `velador_device_zombie` — `{device_id, name, area, entities, dead_hours}`
+- `velador_healed` now includes `downtime_min` and `attempts_used` (real MTTR)
 
 ## Options
 
@@ -45,8 +50,18 @@ Velador does three things:
 | Canary entities | — | Critical entities that heal their owning integration directly when unavailable — catches PARTIAL death the ratio never sees |
 | Canary minutes | 20 | How long a canary must be unavailable before healing |
 | WAN entity | — | Connectivity entity; while it's down, cloud integrations are neither judged nor healed (the failure is the environment), and cooldowns are released when it recovers |
+| Device-zombie hours | 0 (off) | Flag devices whose entities are ALL dead longer than this — the blind spot the ratio never sees (3 dead of 40 = 7%) |
 
 Helpers, `mobile_app`, HACS and similar meta-domains are always ignored.
+
+## Services
+
+- `velador.heal` — force the heal cycle (resets strikes, cooldowns, incurable and flapping, then reloads). Without `entry_id` it heals everything currently sick: wire it to "power is back" and the whole house self-recovers.
+- `velador.audit` — returns the full watch table as response data, consumable by scripts and conversation agents.
+
+## How it heals (v0.5)
+
+Detection is event-driven (a transition to `unavailable` triggers a debounced check in ~1 min; the 5-minute scan remains as safety net). Reloads back off exponentially (30 min → 2 h → your cooldown) with jitter; after 3 failed attempts the integration is *incurable* — but not terminal: a half-open probe retries once a day, because cloud outages heal themselves. If an integration revives 3+ times in 24 h it is flagged **unstable** (the reload is masking a physical problem) and auto-heal stops. When ≥3 integrations die in the same scan, **storm mode** raises ONE repair and reloads them sequentially instead of stampeding your router. Every reload is probed 90 s later so incidents close immediately, with real downtime in the `velador_healed` event. Incurable repairs carry a **"Revive now"** button.
 
 ## Install
 

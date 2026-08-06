@@ -17,7 +17,7 @@ Toda feature nueva pasa este filtro: si es análisis estático de configuración
 
 ---
 
-## v0.3 — Cerrar los puntos ciegos que más duelen
+## v0.3 — Cerrar los puntos ciegos que más duelen ✅ (liberada en v0.3.0/0.3.1)
 
 **Canarios: entidades críticas que curan su entry sin esperar el 90%**
 Lista opcional de entity_ids; si un canario lleva >N min `unavailable`, se resuelve su entry vía entity registry y entra a la escalera de heal aunque el ratio global no cruce el umbral. Caza la muerte PARCIAL: 1 CT muerto de 4 en Emporia jamás llega a 90%, y la casa origen reconstruyó este watchdog 3 veces en YAML antes de que existiera Velador.
@@ -36,7 +36,7 @@ El README linkeaba a un ROADMAP.md que no existía (404 en la primera visita). Y
 
 ---
 
-## v0.4 — Curar mejor, no más
+## v0.4 — Curar mejor, no más ✅ (liberada: memoria en v0.4.0, resto en v0.5.0)
 
 **Memoria persistente de WatchState (promovido desde v0.5)**
 Persistir strikes, intentos, incurables y cooldowns en `Store` para que un restart no borre lo aprendido. Evidencia del update a HA 2026.8 (5-ago): tras el restart, los 2 incurables CONOCIDOS (smartthings con token vencido, bambu_lab pidiendo reauth) volvieron a "intento 1" — Velador re-quemará 2 reloads y 12h de cooldown en cada uno para re-descubrir lo que ya había diagnosticado. Con memoria, un incurable previo arranca en el circuit breaker espaciado, no desde cero. También cubre el reset por cambio de opciones (recarga del entry = amnesia hoy).
@@ -58,7 +58,7 @@ A los 90s del reload, recontar entidades del entry: si revivió, cerrar el incid
 
 ---
 
-## v0.5 — Señal más fina, superficie estándar
+## v0.5 — Señal más fina, superficie estándar ✅ (liberada en v0.5.0)
 
 **Zombies a nivel device**
 Agrupar entidades por `device_id` dentro de entries multi-device (mqtt, zha, hue, tuya): si el 100% de las entidades de un device llevan >X horas muertas → evento + Repair agregado con nombre y área. Sin auto-heal — un device no se recarga; es señal pura. Es el punto ciego matemático del ratio: 3 sensores muertos de 40 = 7%, integración "sana", y la luz del baño no prende.

@@ -20,10 +20,12 @@ from .const import (
     CONF_AUTO_HEAL,
     CONF_CANARY_ENTITIES,
     CONF_CANARY_MINUTES,
+    CONF_DEVICE_ZOMBIE_HOURS,
     CONF_STALE_ENTITIES,
     CONF_STALE_MINUTES,
     CONF_WAN_ENTITY,
     DEFAULT_CANARY_MINUTES,
+    DEFAULT_DEVICE_ZOMBIE_HOURS,
     DEFAULT_STALE_MINUTES,
     CONF_COOLDOWN_HOURS,
     CONF_EXCLUDE_DOMAINS,
@@ -126,6 +128,12 @@ class VeladorOptionsFlow(OptionsFlow):
                     CONF_WAN_ENTITY,
                     description={"suggested_value": opts.get(CONF_WAN_ENTITY, "")},
                 ): str,
+                vol.Optional(
+                    CONF_DEVICE_ZOMBIE_HOURS,
+                    default=opts.get(
+                        CONF_DEVICE_ZOMBIE_HOURS, DEFAULT_DEVICE_ZOMBIE_HOURS
+                    ),
+                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=168)),
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)

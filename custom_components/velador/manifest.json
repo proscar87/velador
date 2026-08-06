@@ -5,12 +5,14 @@
     "@proscar87"
   ],
   "config_flow": true,
-  "dependencies": [],
+  "dependencies": [
+    "automation"
+  ],
   "documentation": "https://github.com/proscar87/velador",
   "integration_type": "service",
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/proscar87/velador/issues",
   "requirements": [],
   "single_config_entry": true,
-  "version": "0.4.0"
+  "version": "0.5.0"
 }
