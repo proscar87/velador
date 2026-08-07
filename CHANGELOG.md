@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1 — 2026-08-07
+
+- Fix hassfest: un issue no puede tener  y  a la vez — el botón "Revivir ahora" del incurable ahora usa solo strings de fix_flow (fix aportado desde la sesión hermana).
+
 ## 0.5.0 — 2026-08-06
 
 Completa las olas v0.4 ("curar mejor, no más") y v0.5 ("señal más fina, superficie estándar") del ROADMAP.
