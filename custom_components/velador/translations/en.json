@@ -63,7 +63,6 @@
     },
     "incurable": {
       "title": "Integration needs manual attention: {title}",
-      "description": "The integration **{title}** ({domain}) stayed dead after {attempts} automatic reloads. It likely needs re-authentication, a credential fix or physical attention. Velador will stop reloading it until it recovers.",
       "fix_flow": {
         "step": {
           "confirm": {

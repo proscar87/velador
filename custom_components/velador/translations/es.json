@@ -63,7 +63,6 @@
     },
     "incurable": {
       "title": "Integración necesita manos: {title}",
-      "description": "La integración **{title}** ({domain}) siguió muerta tras {attempts} recargas automáticas. Probablemente necesita re-autenticación, arreglo de credenciales o atención física. Velador dejará de recargarla hasta que se recupere.",
       "fix_flow": {
         "step": {
           "confirm": {
