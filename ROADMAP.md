@@ -99,6 +99,11 @@ Hero con screenshot del Repair, badges, y la tabla "¿por qué no basta X?" cont
 
 ---
 
+## Ideas en evaluación (sin ola asignada)
+
+**Detector de olas sub-umbral (transitorios masivos)**
+Un hub que rebota 2 minutos tira 100+ entidades y se auto-recupera: nunca cruza el 90%×2 strikes, ningún canario aguanta 20 min, y Velador —correctamente— calla. Pero la RECURRENCIA de esas olas es señal de hardware enfermo (corriente floja, bridge moribundo) que hoy solo se descubre por arqueología. Propuesta: detectar "N+ entidades del mismo entry caen a unavailable en la misma ventana de segundos", contar por entry en Store, y levantar Repair solo al reincidir (ej. 3 olas en 7 días) — señal de "esto es físico", hermana del flapping pero sub-umbral. Sin alarma por ola individual (sería latoso). Caso de origen: el Hue Bridge de la casa origen rebotó 4+ veces en el verano (jun, jul, 2×ago) y cada vez se diagnosticó a mano; mientras se decide, la casa lo cubre con una automatización de contador.
+
 ## Descartado a propósito
 
 Ideas que pasaron por panel adversarial y murieron. No re-proponer sin evidencia nueva.
