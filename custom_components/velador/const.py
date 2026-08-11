@@ -96,3 +96,20 @@ STATUS_WATCHING = "vigilando"
 STATUS_ZOMBIE = "zombie"
 STATUS_HEALING = "reviviendo"
 STATUS_INCURABLE = "incurable"
+
+# --- v0.6: auto-stale por cadencia aprendida ---
+# Aprende cada cuánto reporta normalmente un sensor y avisa cuando se calla
+# mucho más de lo suyo. Evita tener que mantener a mano la lista de stale.
+CONF_AUTO_STALE = "auto_stale"
+DEFAULT_AUTO_STALE = False          # opt-in: en casas con miles de entidades, primero mirar
+AUTO_STALE_MULTIPLIER = 5           # se declara mudo a >5x su propia cadencia
+AUTO_STALE_FLOOR_MINUTES = 30       # ...pero nunca antes de 30 min (piso anti-ruido)
+CADENCE_SAMPLES = 12                # ventana de muestras por entidad
+CADENCE_MIN_SAMPLES = 5             # antes de esto, no hay cadencia confiable
+EVENT_AUTO_STALE = "velador_auto_stale_detected"
+
+# --- v0.7: diff post-arranque ---
+# Al reiniciar HA (o al actualizarlo) hay integraciones que ya no vuelven, y
+# nadie avisa. Se guarda una foto de lo que estaba sano y se compara al arrancar.
+EVENT_RESTART_DIFF = "velador_restart_diff"
+SNAPSHOT_MIN_AGE_MINUTES = 20   # no fotografiar un arranque a medias

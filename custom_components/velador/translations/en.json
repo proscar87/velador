@@ -27,7 +27,8 @@
           "canary_entities": "Canaries: critical entities that heal their integration when they die",
           "canary_minutes": "Minutes a canary must be unavailable before healing",
           "wan_entity": "WAN connectivity entity (optional: no internet, no cloud heals wasted)",
-          "device_zombie_hours": "Device-zombie hours (0 = off): flag devices with ALL entities dead longer than this"
+          "device_zombie_hours": "Device-zombie hours (0 = off): flag devices with ALL entities dead longer than this",
+          "auto_stale": "Auto-detect stale sensors (learns each sensor's own cadence)"
         }
       }
     }
@@ -91,6 +92,18 @@
     "device_zombies": {
       "title": "{count} device(s) completely dead",
       "description": "Devices with ALL their entities unavailable for more than {hours} hours: {names}. The integration ratio never sees this (3 dead entities out of 40 is 7%). Check power, switch, battery or mesh for each device."
+    },
+    "auto_stale": {
+      "title": "Sensor gone quiet: {entity_id}",
+      "description": "**{entity_id}** has not reported for {minutes} minutes, but it normally reports every {cadence} minutes. Nothing marked it unavailable — it just went silent. Check the device, its battery or its mesh."
+    },
+    "restart_diff": {
+      "title": "{count} integration(s) did not come back after the restart",
+      "description": "These were healthy before the last restart and are not now: {entries}.\n\nNothing else will tell you this: a config entry that quietly fails to return after a reboot looks the same as one that was never there."
+    },
+    "restart_diff_update": {
+      "title": "{count} integration(s) did not survive the Home Assistant update",
+      "description": "Home Assistant went from **{ha_antes}** to **{ha_ahora}**, and these were healthy before and are not now: {entries}.\n\nA version change plus integrations that don't come back usually means a breaking change — check their release notes before assuming hardware."
     }
   }
 }
