@@ -1,9 +1,29 @@
 # Changelog
 
-## 1.0.0 — 2026-08-11
+## 1.1.0 — 2026-08-11
 
-Cierra el roadmap completo. Velador pasa de "script útil para quien sabe" a integración que
-se instala y cuida sola.
+- **Olas reincidentes.** Un hub que rebota dos minutos tira 100+ entidades y se recupera solo:
+  no cruza ningún umbral, ningún canario aguanta tanto, y Velador —con razón— se calla. Pero
+  que eso pase **tres veces en una semana** ya no es un susto, es un aparato enfermo (fuente
+  floja, bridge muriéndose), y hasta hoy eso solo se descubría haciendo arqueología de logs.
+- Se cuenta, no se grita: ≥5 entidades del mismo entry (o la mitad, lo que sea mayor) cayendo
+  en 90 s se marcan como ola **candidata**; a los 10 min se confirma solo si volvieron solas.
+  Si no volvieron nunca fue una ola — es un zombie, y de eso ya se encarga la escalera de cura.
+- Una ola que pega a **varias** integraciones a la vez se descarta: eso fue la casa (apagón,
+  switch, wifi), no el aparato. Con la WAN caída tampoco se cuenta nada.
+- Señal: un solo Repair al reincidir, evento `velador_wave` por cada ola confirmada (para quien
+  quiera su propio contador), `velador_wave_recurrent` al cruzar el umbral, y
+  `sensor.velador_olas_reincidentes`. **Sin auto-heal** — recargar no arregla una fuente floja.
+- El historial se persiste: la reincidencia se mide en semanas y sin memoria cada reinicio
+  perdonaría al aparato enfermo.
+- Opción `wave_detect` (encendida por defecto).
+
+## 0.8.0 — 2026-08-11
+
+El kit de arranque: Velador pasa de "script útil para quien sabe" a integración que se instala
+y cuida sola. Cierra las features que el roadmap listaba bajo "v1.0" — pero **la versión 1.0
+se reserva** para cuando esté en la tienda default de HACS y con uso real de terceros, que es
+lo que de verdad justifica ese número.
 
 - **Blueprint de notificación** (`blueprints/automation/velador/notificacion.yaml`): Velador
   sigue sin mandar push por diseño, pero ahora hay un puente opcional donde **tú** eliges el
