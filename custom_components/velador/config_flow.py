@@ -18,12 +18,14 @@ from homeassistant.core import callback
 
 from .const import (
     CONF_AUTO_HEAL,
+    CONF_AUTO_STALE,
     CONF_CANARY_ENTITIES,
     CONF_CANARY_MINUTES,
     CONF_DEVICE_ZOMBIE_HOURS,
     CONF_STALE_ENTITIES,
     CONF_STALE_MINUTES,
     CONF_WAN_ENTITY,
+    DEFAULT_AUTO_STALE,
     DEFAULT_CANARY_MINUTES,
     DEFAULT_DEVICE_ZOMBIE_HOURS,
     DEFAULT_STALE_MINUTES,
@@ -128,6 +130,10 @@ class VeladorOptionsFlow(OptionsFlow):
                     CONF_WAN_ENTITY,
                     description={"suggested_value": opts.get(CONF_WAN_ENTITY, "")},
                 ): str,
+                vol.Optional(
+                    CONF_AUTO_STALE,
+                    default=opts.get(CONF_AUTO_STALE, DEFAULT_AUTO_STALE),
+                ): bool,
                 vol.Optional(
                     CONF_DEVICE_ZOMBIE_HOURS,
                     default=opts.get(

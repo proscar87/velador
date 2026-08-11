@@ -27,7 +27,8 @@
           "canary_entities": "Canarios: entidades críticas que curan su integración al morir",
           "canary_minutes": "Minutos unavailable de un canario antes de curar",
           "wan_entity": "Entidad de conectividad WAN (opcional: sin internet no se gastan curas cloud)",
-          "device_zombie_hours": "Horas para device-zombie (0 = apagado): marcar devices con TODAS sus entidades muertas más de esto"
+          "device_zombie_hours": "Horas para device-zombie (0 = apagado): marcar devices con TODAS sus entidades muertas más de esto",
+          "auto_stale": "Detectar congelados automáticamente (aprende la cadencia de cada sensor)"
         }
       }
     }
@@ -91,6 +92,18 @@
     "device_zombies": {
       "title": "{count} device(s) completamente muertos",
       "description": "Devices con TODAS sus entidades unavailable por más de {hours} horas: {names}. El ratio de la integración nunca ve esto (3 entidades muertas de 40 es 7%). Revisa corriente, apagador, pila o malla de cada uno."
+    },
+    "auto_stale": {
+      "title": "Sensor mudo: {entity_id}",
+      "description": "**{entity_id}** lleva {minutes} minutos sin reportar, pero normalmente reporta cada {cadence} minutos. Nadie lo marcó como no disponible — simplemente se calló. Revisa el aparato, su pila o su malla."
+    },
+    "restart_diff": {
+      "title": "{count} integración(es) no volvieron tras el reinicio",
+      "description": "Estaban sanas antes del último reinicio y ahora no: {entries}.\n\nNadie más te avisa de esto: un config entry que no regresa después de un reboot se ve igual que uno que nunca estuvo."
+    },
+    "restart_diff_update": {
+      "title": "{count} integración(es) no sobrevivieron la actualización de Home Assistant",
+      "description": "Home Assistant pasó de **{ha_antes}** a **{ha_ahora}**, y estas estaban sanas antes y ahora no: {entries}.\n\nCambio de versión más integraciones que no vuelven casi siempre es un breaking change — revisa sus notas de versión antes de culpar al hardware."
     }
   }
 }

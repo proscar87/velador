@@ -30,7 +30,14 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     ALWAYS_IGNORED_DOMAINS,
+    AUTO_STALE_FLOOR_MINUTES,
+    AUTO_STALE_MULTIPLIER,
     BACKOFF_MINUTES,
+    CADENCE_MIN_SAMPLES,
+    CADENCE_SAMPLES,
+    CONF_AUTO_STALE,
+    DEFAULT_AUTO_STALE,
+    EVENT_AUTO_STALE,
     CONF_CANARY_ENTITIES,
     CONF_CANARY_MINUTES,
     CONF_DEVICE_ZOMBIE_HOURS,
@@ -43,7 +50,9 @@ from .const import (
     EVENT_DEVICE_ZOMBIE,
     EVENT_FLAPPING,
     EVENT_REAUTH_NEEDED,
+    EVENT_RESTART_DIFF,
     EVENT_STORM_DETECTED,
+    SNAPSHOT_MIN_AGE_MINUTES,
     FLAP_MAX_HEALS,
     FLAP_WINDOW_HOURS,
     HUB_DOMAINS_NO_RELOAD,
@@ -174,6 +183,12 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
         self._last_saved: str | None = None
         self._device_zombies_active: set[str] = set()
         self._event_refresh_pending = False
+        # v0.6 — cadencia aprendida: entity_id -> {"gaps": [seg...], "last": iso, "median": seg}
+        self._cadence: dict[str, dict] = {}
+        self._auto_stale_active: set[str] = set()
+        # v0.7 — foto del último estado sano conocido, para el diff post-arranque
+        self._snapshot: dict = {}
+        self._diff_done = False
 
     @callback
     def async_start(self) -> "callable":
@@ -269,6 +284,16 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
         if not raw:
             return
         self._healed_total = int(raw.get("healed_total", 0))
+        self._snapshot = raw.get("snapshot") or {}
+        for eid, c in (raw.get("cadence") or {}).items():
+            try:
+                self._cadence[eid] = {
+                    "gaps": [],
+                    "last": c.get("last"),
+                    "median": float(c["median"]),
+                }
+            except (TypeError, ValueError, KeyError):
+                continue
         restored = 0
         for entry_id, watch_raw in (raw.get("watch") or {}).items():
             # Solo restaurar entries que siguen existiendo.
@@ -326,6 +351,14 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
         return {
             "healed_total": self._healed_total,
             "watch": {eid: w.as_dict() for eid, w in self._watch.items()},
+            # Solo la mediana y la última marca: reconstruir la ventana de gaps
+            # tras un restart no aporta y engordaría el archivo.
+            "cadence": {
+                eid: {"median": c["median"], "last": c["last"]}
+                for eid, c in self._cadence.items()
+                if c.get("median")
+            },
+            "snapshot": self._snapshot,
         }
 
     def _save_state(self) -> None:
@@ -399,6 +432,7 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
                 entities_by_entry.setdefault(reg_entry.config_entry_id, []).append(reg_entry)
 
         seen_entry_ids: set[str] = set()
+        sanos: dict[str, str] = {}
         new_zombies: list[tuple[ConfigEntry, WatchState, dict]] = []
         heal_queue: list[tuple[ConfigEntry, WatchState, dict]] = []
 
@@ -434,6 +468,8 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
 
             seen_entry_ids.add(config_entry.entry_id)
             data.watched += 1
+            if not setup_error and total and (dead / total) < threshold:
+                sanos[config_entry.entry_id] = config_entry.title
             watch = self._watch.setdefault(config_entry.entry_id, WatchState())
             is_zombie = setup_error or (dead / total) >= threshold
 
@@ -525,7 +561,10 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
                 ir.async_delete_issue(self.hass, DOMAIN, f"zombie_{entry_id}")
 
         await self._scan_canaries(data, wan_down)
+        self._diff_post_arranque(sanos)
+        self._tomar_snapshot(sanos)
         await self._scan_stale(data, wan_down)
+        await self._scan_auto_stale(data)
         await self._scan_device_zombies(data)
         data.healed_total = self._healed_total
         self._save_state()
@@ -809,6 +848,198 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
             )
         else:
             ir.async_delete_issue(self.hass, DOMAIN, "device_zombies")
+
+    def _tomar_snapshot(self, sanos: dict[str, str]) -> None:
+        """Guarda la foto de lo que está sano ahora, para comparar tras el próximo boot.
+
+        Solo se fotografía cuando HA lleva un rato arriba: retratar un arranque a
+        medias produciría un diff falso en el siguiente reinicio.
+        """
+        if dt_util.utcnow() - self._started < timedelta(minutes=SNAPSHOT_MIN_AGE_MINUTES):
+            return
+        self._snapshot = {
+            "at": dt_util.utcnow().isoformat(),
+            "ha_version": getattr(self.hass.config, "version", None) or "?",
+            "entries": sanos,
+        }
+
+    def _diff_post_arranque(self, sanos: dict[str, str]) -> None:
+        """Compara contra la última foto sana: qué se cayó y no volvió tras el restart.
+
+        Es el hueco que dejaba el resto de la vigilancia: si una integración
+        desaparece o queda muerta justo en el reinicio, nadie lo relaciona con el
+        reinicio. Aquí sí, y si además cambió la versión de HA, se marca como
+        posible breaking change del update.
+        """
+        if self._diff_done:
+            return
+        self._diff_done = True
+        previo = self._snapshot or {}
+        antes = previo.get("entries") or {}
+        if not antes:
+            return
+
+        perdidas = []
+        for entry_id, titulo in antes.items():
+            config_entry = self.hass.config_entries.async_get_entry(entry_id)
+            if config_entry is None:
+                perdidas.append((titulo, "ya no existe"))
+            elif entry_id not in sanos:
+                estado = "no cargó" if config_entry.state is not ConfigEntryState.LOADED else "sin entidades vivas"
+                perdidas.append((config_entry.title or titulo, estado))
+        if not perdidas:
+            return
+
+        ha_antes = previo.get("ha_version") or "?"
+        ha_ahora = getattr(self.hass.config, "version", None) or "?"
+        cambio_version = ha_antes != ha_ahora
+        detalle = ", ".join(f"{t} ({m})" for t, m in perdidas)
+        _LOGGER.warning(
+            "Tras el arranque no volvieron %s integraciones: %s%s",
+            len(perdidas),
+            detalle,
+            f" — y HA cambió de {ha_antes} a {ha_ahora}" if cambio_version else "",
+        )
+        self.hass.bus.async_fire(
+            EVENT_RESTART_DIFF,
+            {
+                "perdidas": [{"title": t, "motivo": m} for t, m in perdidas],
+                "ha_antes": ha_antes,
+                "ha_ahora": ha_ahora,
+                "posible_breaking_change": cambio_version,
+                "foto_de": previo.get("at"),
+            },
+        )
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            "restart_diff",
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="restart_diff_update" if cambio_version else "restart_diff",
+            translation_placeholders={
+                "count": str(len(perdidas)),
+                "entries": detalle,
+                "ha_antes": ha_antes,
+                "ha_ahora": ha_ahora,
+            },
+        )
+
+    def _cadence_eligible(self, entity_id: str, state) -> bool:
+        """Solo sensores numéricos periódicos: son los que tienen cadencia propia.
+
+        Un binary_sensor de puerta puede estar meses sin cambiar y eso es sano;
+        un sensor de potencia que se calla 5x su ritmo, no.
+        """
+        if not entity_id.startswith("sensor."):
+            return False
+        if state.attributes.get("state_class") != "measurement":
+            return False
+        if state.state in ("unavailable", "unknown"):
+            return False
+        return True
+
+    def _learn_cadence(self, entity_id: str, reported: datetime) -> float | None:
+        """Aprende cada cuánto reporta esta entidad. Devuelve la mediana en segundos.
+
+        Ojo con la resolución: como se muestrea en cada escaneo, la cadencia
+        aprendida nunca baja del intervalo de escaneo. No importa — lo que se
+        busca es detectar SILENCIO, no medir la frecuencia exacta.
+        """
+        c = self._cadence.setdefault(entity_id, {"gaps": [], "last": None, "median": None})
+        iso = reported.isoformat()
+        if c["last"] == iso:
+            return c["median"]
+        if c["last"]:
+            prev = dt_util.parse_datetime(c["last"])
+            if prev:
+                gap = (reported - prev).total_seconds()
+                if 0 < gap < 86400:  # descartar saltos absurdos (reboots, relojes)
+                    c["gaps"].append(gap)
+                    del c["gaps"][:-CADENCE_SAMPLES]
+        c["last"] = iso
+        if len(c["gaps"]) >= CADENCE_MIN_SAMPLES:
+            ordenados = sorted(c["gaps"])
+            c["median"] = ordenados[len(ordenados) // 2]
+        return c["median"]
+
+    async def _scan_auto_stale(self, data: VeladorData) -> None:
+        """Congelados sin lista manual: aprende la cadencia de cada sensor y avisa
+        cuando uno se calla mucho más de lo suyo.
+
+        Deliberadamente NO cura: es una heurística, y disparar reloads masivos
+        desde una heurística haría más daño que el congelamiento. Reporta y ya —
+        la lista manual de stale sigue siendo la que cura.
+        """
+        if not self._opt(CONF_AUTO_STALE, DEFAULT_AUTO_STALE):
+            return
+        manual = set(self._opt(CONF_STALE_ENTITIES, []))
+        excluded = self._excluded_domains
+        registry = er.async_get(self.hass)
+        now = dt_util.utcnow()
+        piso = AUTO_STALE_FLOOR_MINUTES * 60
+        vistos: set[str] = set()
+
+        for reg_entry in registry.entities.values():
+            entity_id = reg_entry.entity_id
+            if reg_entry.disabled_by or entity_id in manual:
+                continue
+            if (reg_entry.platform or "") in excluded:
+                continue
+            state = self.hass.states.get(entity_id)
+            if state is None or not self._cadence_eligible(entity_id, state):
+                continue
+            vistos.add(entity_id)
+            reported = getattr(state, "last_reported", None) or state.last_updated
+            median = self._learn_cadence(entity_id, reported)
+            if not median:
+                continue  # aún aprendiendo
+            umbral = max(median * AUTO_STALE_MULTIPLIER, piso)
+            age = (now - reported).total_seconds()
+            if age <= umbral:
+                if entity_id in self._auto_stale_active:
+                    self._auto_stale_active.discard(entity_id)
+                    ir.async_delete_issue(self.hass, DOMAIN, f"autostale_{entity_id}")
+                    _LOGGER.info("Volvió a reportar: %s", entity_id)
+                continue
+
+            info = {
+                "entity_id": entity_id,
+                "state": state.state,
+                "minutes_stale": int(age // 60),
+                "cadencia_normal_min": round(median / 60, 1),
+                "auto": True,
+            }
+            data.stale.append(info)
+            if entity_id in self._auto_stale_active:
+                continue
+            self._auto_stale_active.add(entity_id)
+            _LOGGER.warning(
+                "Sensor mudo (cadencia aprendida): %s lleva %s min sin reportar; "
+                "lo normal en él son %s min",
+                entity_id,
+                info["minutes_stale"],
+                info["cadencia_normal_min"],
+            )
+            self.hass.bus.async_fire(EVENT_AUTO_STALE, info)
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                f"autostale_{entity_id}",
+                is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key="auto_stale",
+                translation_placeholders={
+                    "entity_id": entity_id,
+                    "minutes": str(info["minutes_stale"]),
+                    "cadence": str(info["cadencia_normal_min"]),
+                },
+            )
+
+        # Olvidar entidades que ya no existen para que el Store no crezca solo.
+        for entity_id in list(self._cadence):
+            if entity_id not in vistos and entity_id not in manual:
+                del self._cadence[entity_id]
 
     def _stale_recover(self, entity_id: str, issue_id: str, silent: bool) -> None:
         if entity_id in self._stale_active:

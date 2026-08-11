@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.0 — 2026-08-11
+
+- **Diff post-arranque — "el restart te rompió X".** Velador guarda una foto de qué integraciones estaban sanas y, al volver de un reinicio, avisa cuáles no regresaron. Si además cambió la versión de Home Assistant, lo marca como **posible breaking change del update** y lo dice en el Repair. Era el hueco que quedaba: un entry que falla en silencio tras un reboot se ve igual que uno que nunca estuvo.
+- La foto solo se toma cuando HA lleva ≥20 min arriba, para no retratar un arranque a medias y producir un diff falso.
+- Evento nuevo: `velador_restart_diff` con la lista, ambas versiones de HA y la bandera de breaking change.
+
+## 0.6.0 — 2026-08-11
+
+- **Auto-stale por cadencia aprendida.** Detecta sensores congelados **sin lista manual**: aprende cada cuánto reporta normalmente cada sensor numérico (`state_class: measurement`) y avisa cuando se calla más de 5× su propio ritmo, con piso de 30 min. La cadencia aprendida se persiste, así que sobrevive reinicios.
+- **Deliberadamente no cura**: es una heurística, y disparar reloads masivos desde una heurística haría más daño que el congelamiento. Reporta con Repair + evento `velador_auto_stale_detected`; la lista manual de stale sigue siendo la que cura.
+- **Opt-in** (`auto_stale`, apagado por defecto): en casas con miles de entidades conviene mirar antes de encender.
+- Las entidades que desaparecen se olvidan solas para que el almacenamiento no crezca sin control.
+
 ## 0.5.1 — 2026-08-07
 
 - Fix hassfest: un issue no puede tener  y  a la vez — el botón "Revivir ahora" del incurable ahora usa solo strings de fix_flow (fix aportado desde la sesión hermana).
