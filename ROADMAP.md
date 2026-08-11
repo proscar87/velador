@@ -83,15 +83,21 @@ Listener barato de transiciones a `unavailable` que encola un chequeo dirigido d
 
 ---
 
+## v0.6 ✅ / v0.7 ✅ (liberadas 11-ago-2026)
+
+**v0.6 — Auto-stale por cadencia aprendida.** Aprende el ritmo propio de cada sensor numérico y avisa a >5x, con piso de 30 min. Opt-in y **sin auto-heal**: reportar desde una heurística sí, recargar en masa desde una heurística no.
+
+**v0.7 — Diff post-arranque.** Foto del último estado sano; al volver de un reinicio dice qué no regresó, y si cambió la versión de HA lo marca como posible breaking change.
+
 ## v1.0 — Listo para la tienda default de HACS
 
-**Auto-stale: congelados sin configurar lista**
+**~~Auto-stale: congelados sin configurar lista~~ — LIBERADO en v0.6**
 Modo automático (default on, con override manual): aprender la cadencia típica por entidad con `state_class: measurement` (mediana rodante de `last_reported`, ~24h) y declarar congelado a >5× su propia cadencia con piso de 30 min. Honestidad obligada: sensores push-on-change tienen cadencia irregular — la heurística reduce falsos positivos, no los elimina; documentarlo y dar opt-out claro. Es la diferencia entre "script útil para quien sabe" y "lo instalas y te cuida".
 
-**Diff post-arranque: "el restart te rompió X"**
+**~~Diff post-arranque: "el restart te rompió X"~~ — LIBERADO en v0.7**
 Snapshot periódico en Store de disponibilidad por entry y por automatización; al terminar la gracia post-boot, comparar y levantar Repair con lista concreta de lo que estaba vivo y no volvió. Si cambió la versión de HA, etiquetar "posible breaking change del update" — el escenario del `kelvin`→`color_temp_kelvin` que rompió 7 automatizaciones en silencio.
 
-**Distribución: brands + release + submission**
+**~~Distribución: brands + release + submission~~ — HECHO (íconos locales v0.3.1; PR hacs/default#9763 en cola)**
 PR a `home-assistant/brands` (icon/logo 512×512), release taggeado con zip, PR a `hacs/default`, y bump de `homeassistant` en hacs.json a 2024.8 (el código usa `last_reported`). Hoy instalar exige copiar una URL de custom repository — fricción que filtra al 95%.
 
 **README que convierte + kit de arranque**
