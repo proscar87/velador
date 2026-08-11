@@ -1,7 +1,11 @@
 # ROADMAP — Velador
 
-> **Estado: v1.0 liberada — el roadmap original está completo.** Lo que siga sale de uso real
-> y de lo que pida la gente, no de esta lista. Las ideas en evaluación quedan más abajo.
+> **Estado: todas las features del roadmap original están liberadas (última: v0.8.0).**
+> Lo que siga sale de uso real y de lo que pida la gente, no de esta lista.
+>
+> **La v1.0 se reserva a propósito.** Un 1.0 dice "estable y probado por gente que no soy yo":
+> se marcará cuando esté en la tienda default de HACS y haya uso real de terceros. Hoy el
+> proyecto tiene dos semanas, cero usuarios externos y el PR de la tienda en cola.
 
 Velador detecta y cura la muerte silenciosa en Home Assistant: integraciones zombie, sensores congelados y todo lo que falla sin avisar. Lo que NO va a ser: notificador push, gestor de Zigbee, plataforma de métricas ni dashboard — la señal siempre será Repairs + entidades + eventos, con cero red propia y cero dependencias.
 
@@ -92,7 +96,7 @@ Listener barato de transiciones a `unavailable` que encola un chequeo dirigido d
 
 **v0.7 — Diff post-arranque.** Foto del último estado sano; al volver de un reinicio dice qué no regresó, y si cambió la versión de HA lo marca como posible breaking change.
 
-## v1.0 — Listo para la tienda default de HACS ✅ (liberada 11-ago-2026)
+## Kit de arranque ✅ (liberado como v0.8.0 el 11-ago-2026)
 
 **~~Auto-stale: congelados sin configurar lista~~ — LIBERADO en v0.6**
 Modo automático (default on, con override manual): aprender la cadencia típica por entidad con `state_class: measurement` (mediana rodante de `last_reported`, ~24h) y declarar congelado a >5× su propia cadencia con piso de 30 min. Honestidad obligada: sensores push-on-change tienen cadencia irregular — la heurística reduce falsos positivos, no los elimina; documentarlo y dar opt-out claro. Es la diferencia entre "script útil para quien sabe" y "lo instalas y te cuida".
@@ -106,12 +110,19 @@ PR a `home-assistant/brands` (icon/logo 512×512), release taggeado con zip, PR 
 **~~README que convierte + kit de arranque~~ — LIBERADO en v1.0**
 Hero con screenshot del Repair, badges, y la tabla "¿por qué no basta X?" contra Watchman (audita refs, no revive), Spook (encuentra fantasmas, no cura) y el retry nativo de HA (no cubre loaded-pero-muerto) — esa tabla ES el pitch. Más: carpeta `blueprints/` ("Velador → avísame como TÚ quieras" con el notify que el usuario elija — la notificación es SU automatización, opt-in, cero-push intacto) y `lovelace/velador-dashboard.yaml` copy-paste con cards nativas: 90% del valor de una custom card con 5% del esfuerzo.
 
+## v1.1 — Detector de olas sub-umbral ✅ (liberada 11-ago-2026)
+
+Cerrar el último punto ciego que quedaba documentado: el transitorio masivo que se cura solo. Un hub que rebota 2 minutos tira 100+ entidades y se auto-recupera: nunca cruza el 90%×2 strikes, ningún canario aguanta 20 min, y Velador —correctamente— calla. Pero la RECURRENCIA de esas olas es señal de hardware enfermo (corriente floja, bridge moribundo) que hasta hoy solo se descubría por arqueología.
+
+Implementado: ≥5 entidades del mismo entry (o la mitad, lo que sea mayor) cayendo en 90 s marcan una ola candidata; se confirma a los 10 min **solo si volvieron solas** — si siguen muertas nunca fue una ola, es un zombie y de eso ya se encarga la escalera. Se descartan las olas que pegan a varios entries a la vez (eso fue la casa, no el aparato) y las que ocurren con la WAN caída. Historial persistido en Store, porque la reincidencia se mide en semanas. Repair único al llegar a 3 olas en 7 días, evento por cada ola confirmada para quien quiera su contador, y `sensor.velador_olas_reincidentes`. Sin auto-heal: recargar no arregla una fuente floja.
+
+Caso de origen: el Hue Bridge de la casa rebotó 4+ veces en el verano (jun, jul, 2×ago) y cada vez se diagnosticó a mano; la casa lo cubría con una automatización de contador que esto reemplaza.
+
 ---
 
 ## Ideas en evaluación (sin ola asignada)
 
-**Detector de olas sub-umbral (transitorios masivos)**
-Un hub que rebota 2 minutos tira 100+ entidades y se auto-recupera: nunca cruza el 90%×2 strikes, ningún canario aguanta 20 min, y Velador —correctamente— calla. Pero la RECURRENCIA de esas olas es señal de hardware enfermo (corriente floja, bridge moribundo) que hoy solo se descubre por arqueología. Propuesta: detectar "N+ entidades del mismo entry caen a unavailable en la misma ventana de segundos", contar por entry en Store, y levantar Repair solo al reincidir (ej. 3 olas en 7 días) — señal de "esto es físico", hermana del flapping pero sub-umbral. Sin alarma por ola individual (sería latoso). Caso de origen: el Hue Bridge de la casa origen rebotó 4+ veces en el verano (jun, jul, 2×ago) y cada vez se diagnosticó a mano; mientras se decide, la casa lo cubre con una automatización de contador.
+Ninguna por ahora. El roadmap documentado está cerrado; lo que entre aquí sale de evidencia nueva, no de lluvia de ideas.
 
 ## Descartado a propósito
 
