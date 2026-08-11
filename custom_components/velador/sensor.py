@@ -22,6 +22,7 @@ async def async_setup_entry(
             HealedTotalSensor(coordinator),
             WatchedSensor(coordinator),
             ReauthPendingSensor(coordinator),
+            WaveCountSensor(coordinator),
         ]
     )
 
@@ -122,3 +123,24 @@ class ReauthPendingSensor(VeladorSensor):
     @property
     def extra_state_attributes(self) -> dict:
         return {"pendientes": self.coordinator.data.reauth}
+
+
+class WaveCountSensor(VeladorSensor):
+    """Integraciones con olas reincidentes: transitorios masivos que se curan
+    solos pero vuelven. Entidad propia porque la señal útil es la tendencia —
+    es exactamente el contador que la gente termina escribiendo a mano."""
+
+    _attr_translation_key = "waves"
+    _attr_icon = "mdi:waves"
+
+    def __init__(self, coordinator: VeladorCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.entry.entry_id}_waves"
+
+    @property
+    def native_value(self) -> int:
+        return len(self.coordinator.data.waves)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {"reincidentes": self.coordinator.data.waves}

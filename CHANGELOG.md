@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.1.0 — 2026-08-11
+## 0.9.0 — 2026-08-11
 
 - **Olas reincidentes.** Un hub que rebota dos minutos tira 100+ entidades y se recupera solo:
   no cruza ningún umbral, ningún canario aguanta tanto, y Velador —con razón— se calla. Pero
