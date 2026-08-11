@@ -113,3 +113,19 @@ EVENT_AUTO_STALE = "velador_auto_stale_detected"
 # nadie avisa. Se guarda una foto de lo que estaba sano y se compara al arrancar.
 EVENT_RESTART_DIFF = "velador_restart_diff"
 SNAPSHOT_MIN_AGE_MINUTES = 20   # no fotografiar un arranque a medias
+
+# --- v0.8: olas sub-umbral (transitorios masivos reincidentes) ---
+# Un hub que rebota 2 minutos tira 100+ entidades y se recupera solo: nunca
+# cruza el umbral zombie, ningún canario aguanta 20 min, y Velador —bien—
+# calla. Pero la REINCIDENCIA de esas olas es hardware enfermo (corriente
+# floja, bridge moribundo), y hoy eso solo se descubre por arqueología.
+CONF_WAVE_DETECT = "wave_detect"
+DEFAULT_WAVE_DETECT = True
+WAVE_WINDOW_SECONDS = 90        # caídas dentro de esta ventana = la misma ola
+WAVE_MIN_ENTITIES = 5           # ...y mínimo esto de entidades del mismo entry
+WAVE_MIN_RATIO = 0.5            # ...o la mitad del entry, lo que resulte mayor
+WAVE_CONFIRM_MINUTES = 10       # solo cuenta si se recuperó sola (si no, es zombie)
+WAVE_HISTORY_DAYS = 7
+WAVE_REPEAT_THRESHOLD = 3       # 3 olas en la ventana = "esto es físico"
+EVENT_WAVE = "velador_wave"
+EVENT_WAVE_RECURRENT = "velador_wave_recurrent"

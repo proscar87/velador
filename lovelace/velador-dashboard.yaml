@@ -1,0 +1,81 @@
+# Dashboard de Velador — copiar y pegar en una vista de Lovelace.
+# Solo tarjetas nativas: sin dependencias de HACS ni tarjetas custom.
+title: Velador
+views:
+  - title: Velador
+    path: velador
+    icon: mdi:candle
+    cards:
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: binary_sensor.velador_problema
+            state: "on"
+        card:
+          type: markdown
+          content: >-
+            ## ⚠️ Algo no está bien
+
+
+            {% set z = state_attr('sensor.velador_zombies', 'zombies') or [] %}
+            {% set i = state_attr('sensor.velador_zombies', 'incurables') or [] %}
+            {% set c = state_attr('sensor.velador_congelados', 'congelados') or [] %}
+            {% for x in i %}
+            - **{{ x.title }}** ({{ x.domain }}) — necesita manos: {{ x.reload_attempts }} recargas sin efecto
+            {% endfor %}
+            {% for x in z %}
+            - **{{ x.title }}** ({{ x.domain }}) — {{ x.dead }}/{{ x.total }} entidades muertas, curando
+            {% endfor %}
+            {% for x in c %}
+            - **{{ x.entity_id }}** — mudo {{ x.minutes_stale }} min
+            {% endfor %}
+
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: binary_sensor.velador_problema
+            state: "off"
+        card:
+          type: markdown
+          content: >-
+            ## ✅ Todo respondiendo
+
+
+            {{ states('sensor.velador_integraciones_vigiladas') }} integraciones vigiladas ·
+            {{ states('sensor.velador_revividas_total') }} revividas desde el último arranque.
+
+      - type: glance
+        title: Estado
+        columns: 4
+        entities:
+          - entity: sensor.velador_zombies
+            name: Zombies
+          - entity: sensor.velador_congelados
+            name: Congelados
+          - entity: sensor.velador_reauth_pendiente
+            name: Reauth
+          - entity: sensor.velador_revividas_total
+            name: Revividas
+
+      - type: entities
+        title: Acciones
+        entities:
+          - type: call-service
+            name: Curar todo lo enfermo
+            icon: mdi:heart-pulse
+            action_name: Curar
+            service: velador.heal
+            service_data: {}
+          - type: call-service
+            name: Auditar ahora
+            icon: mdi:clipboard-search
+            action_name: Auditar
+            service: velador.audit
+            service_data: {}
+
+      - type: history-graph
+        title: Últimas 24 h
+        hours_to_show: 24
+        entities:
+          - sensor.velador_zombies
+          - sensor.velador_congelados

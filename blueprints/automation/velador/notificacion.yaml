@@ -1,0 +1,124 @@
+blueprint:
+  name: Velador · avísame como yo quiera
+  description: >-
+    Velador nunca manda notificaciones push por diseño: la señal vive en Repairs y
+    entidades. Este blueprint es el puente opcional — tú eliges el servicio de
+    notificación y qué te importa lo suficiente como para interrumpirte.
+
+
+    Sugerencia: empieza solo con "incurable" y "tormenta". Son los dos que de verdad
+    piden manos. Los zombies normales Velador los cura solo.
+  domain: automation
+  source_url: https://github.com/proscar87/velador/blob/main/blueprints/automation/velador/notificacion.yaml
+  input:
+    servicio_notificacion:
+      name: Servicio de notificación
+      description: A dónde mandar el aviso (por ejemplo notify.mobile_app_tu_telefono).
+      selector:
+        text:
+    avisar_incurable:
+      name: Avisar cuando algo queda incurable
+      description: Se agotaron los reintentos automáticos. Requiere manos (credenciales, hardware).
+      default: true
+      selector:
+        boolean:
+    avisar_tormenta:
+      name: Avisar en modo tormenta
+      description: Tres o más integraciones cayeron juntas — normalmente un apagón o caída de red.
+      default: true
+      selector:
+        boolean:
+    avisar_reauth:
+      name: Avisar cuando falten credenciales
+      description: Hay un reauth pendiente; recargar no lo cura.
+      default: true
+      selector:
+        boolean:
+    avisar_flapping:
+      name: Avisar cuando algo se vuelve inestable
+      description: Revive y vuelve a caer una y otra vez — suele ser físico (corriente, cable, RF, pila).
+      default: false
+      selector:
+        boolean:
+    avisar_zombie:
+      name: Avisar cada zombie detectado
+      description: >-
+        Ruidoso: Velador cura la mayoría solo. Enciéndelo únicamente si quieres verlo todo.
+      default: false
+      selector:
+        boolean:
+    avisar_curado:
+      name: Avisar cuando algo se cura solo
+      description: Útil los primeros días para ver a Velador trabajar; después, apágalo.
+      default: false
+      selector:
+        boolean:
+
+mode: queued
+max: 10
+
+triggers:
+  - trigger: event
+    event_type: velador_incurable
+    id: incurable
+  - trigger: event
+    event_type: velador_storm_detected
+    id: tormenta
+  - trigger: event
+    event_type: velador_reauth_needed
+    id: reauth
+  - trigger: event
+    event_type: velador_flapping
+    id: flapping
+  - trigger: event
+    event_type: velador_zombie_detected
+    id: zombie
+  - trigger: event
+    event_type: velador_healed
+    id: curado
+
+variables:
+  quiero:
+    incurable: !input avisar_incurable
+    tormenta: !input avisar_tormenta
+    reauth: !input avisar_reauth
+    flapping: !input avisar_flapping
+    zombie: !input avisar_zombie
+    curado: !input avisar_curado
+
+conditions:
+  - condition: template
+    value_template: "{{ quiero.get(trigger.id, false) }}"
+
+actions:
+  - action: !input servicio_notificacion
+    data:
+      title: >-
+        {% set t = {'incurable': 'Necesita manos',
+                    'tormenta': 'Varias integraciones cayeron juntas',
+                    'reauth': 'Faltan credenciales',
+                    'flapping': 'Algo inestable',
+                    'zombie': 'Integracion zombie',
+                    'curado': 'Se curo solo'} %}
+        Velador: {{ t.get(trigger.id, trigger.id) }}
+      message: >-
+        {% set d = trigger.event.data %}
+        {% if trigger.id == 'tormenta' %}
+          {{ d.count }} integraciones cayeron a las {{ d.at }}. Probable apagon o caida de red;
+          Velador las esta recargando en secuencia.
+        {% elif trigger.id == 'incurable' %}
+          {{ d.title }} ({{ d.domain }}) sigue muerta tras {{ d.reload_attempts }} recargas.
+          {{ d.dead }} de {{ d.total }} entidades sin responder.
+          {%- if d.automations_ciegas %} Automatizaciones afectadas: {{ d.automations_ciegas | join(', ') }}.{% endif %}
+        {% elif trigger.id == 'reauth' %}
+          {{ d.title }} ({{ d.domain }}) pide re-autenticacion. Recargar no la cura.
+        {% elif trigger.id == 'flapping' %}
+          {{ d.title }} revivio {{ d.heals_window }} veces en 24 h. El reload esta maquillando
+          algo fisico: corriente, cable, cobertura o pila.
+        {% elif trigger.id == 'curado' %}
+          {{ d.title }} ({{ d.domain }}) volvio sola
+          {%- if d.downtime_min %} tras {{ d.downtime_min }} min{% endif %}
+          {%- if d.attempts_used %}, {{ d.attempts_used }} intento(s){% endif %}.
+        {% else %}
+          {{ d.title }} ({{ d.domain }}): {{ d.dead }} de {{ d.total }} entidades sin responder.
+        {% endif %}
