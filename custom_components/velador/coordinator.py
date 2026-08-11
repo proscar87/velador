@@ -200,6 +200,12 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
         # v0.7 — foto del último estado sano conocido, para el diff post-arranque
         self._snapshot: dict = {}
         self._diff_done = False
+        # v0.8 — olas sub-umbral: historial persistido por entry, más el conteo
+        # en vivo de caídas simultáneas que todavía no son una ola confirmada.
+        self._waves: dict[str, list[datetime]] = {}
+        self._wave_bucket: dict[str, dict] = {}
+        self._wave_flagged: list[tuple[str, datetime]] = []
+        self._waves_active: set[str] = set()
 
     @callback
     def async_start(self) -> "callable":
@@ -220,6 +226,9 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
                 or old_state.state in ("unavailable", "unknown")
             ):
                 return
+            # Antes del debounce: una ola se mide por CUÁNTAS entidades caen,
+            # y el debounce se traga todas menos la primera.
+            self._note_unavailable(new_state.entity_id)
             if self._event_refresh_pending:
                 return
             self._event_refresh_pending = True
@@ -279,6 +288,7 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
             "stale": data.stale,
             "reauth": data.reauth,
             "device_zombies": data.device_zombies,
+            "waves": data.waves,
             "watched": data.watched,
             "healed_total": data.healed_total,
             "last_scan": data.last_scan.isoformat() if data.last_scan else None,
@@ -305,6 +315,17 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
                 }
             except (TypeError, ValueError, KeyError):
                 continue
+        corte = dt_util.utcnow() - timedelta(days=WAVE_HISTORY_DAYS)
+        for entry_id, olas in (raw.get("waves") or {}).items():
+            if self.hass.config_entries.async_get_entry(entry_id) is None:
+                continue
+            recientes = [
+                t
+                for t in (dt_util.parse_datetime(x) for x in olas)
+                if t and t > corte
+            ]
+            if recientes:
+                self._waves[entry_id] = recientes
         restored = 0
         for entry_id, watch_raw in (raw.get("watch") or {}).items():
             # Solo restaurar entries que siguen existiendo.
@@ -370,6 +391,13 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
                 if c.get("median")
             },
             "snapshot": self._snapshot,
+            # El historial de olas mide reincidencia en semanas: sin persistir,
+            # cada restart perdona al aparato enfermo.
+            "waves": {
+                eid: [t.isoformat() for t in olas]
+                for eid, olas in self._waves.items()
+                if olas
+            },
         }
 
     def _save_state(self) -> None:
@@ -577,6 +605,7 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
         await self._scan_stale(data, wan_down)
         await self._scan_auto_stale(data)
         await self._scan_device_zombies(data)
+        self._scan_waves(data)
         data.healed_total = self._healed_total
         self._save_state()
         return data
@@ -935,6 +964,184 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
                 "ha_ahora": ha_ahora,
             },
         )
+
+    @callback
+    def _note_unavailable(self, entity_id: str) -> None:
+        """Cuenta caídas simultáneas por entry: si un hub rebota, todas sus
+        entidades caen dentro de la misma ventana de segundos.
+
+        Esto NO alarma por sí solo. Una ola individual es normal (un bridge se
+        reinicia, el wifi hipa) y avisar de cada una sería latoso; lo que se
+        persigue es la reincidencia.
+        """
+        if not self._opt(CONF_WAVE_DETECT, DEFAULT_WAVE_DETECT):
+            return
+        now = dt_util.utcnow()
+        if now - self._started < timedelta(
+            minutes=self._opt(CONF_GRACE_MINUTES, DEFAULT_GRACE_MINUTES)
+        ):
+            return  # el propio arranque de HA tira todo: eso no es una ola
+        reg = er.async_get(self.hass).entities.get(entity_id)
+        entry_id = reg.config_entry_id if reg else None
+        if not entry_id:
+            return
+        config_entry = self.hass.config_entries.async_get_entry(entry_id)
+        if config_entry is None or config_entry.domain in self._excluded_domains:
+            return
+
+        bucket = self._wave_bucket.get(entry_id)
+        if bucket is None or now - bucket["desde"] > timedelta(
+            seconds=WAVE_WINDOW_SECONDS
+        ):
+            bucket = {"desde": now, "caidas": 0, "total": None, "marcada": False}
+            self._wave_bucket[entry_id] = bucket
+        bucket["caidas"] += 1
+        if bucket["marcada"] or bucket["caidas"] < WAVE_MIN_ENTITIES:
+            return
+        if bucket["total"] is None:
+            # Una sola vez por ola: recorrer el registry en cada caída de una
+            # ola de 500 entidades sería 500 barridos completos.
+            bucket["total"] = self._count_dead(config_entry)[1]
+        if bucket["total"] and bucket["caidas"] < bucket["total"] * WAVE_MIN_RATIO:
+            return
+        bucket["marcada"] = True
+        self._wave_flagged.append((entry_id, now))
+
+        @callback
+        def _confirmar(_now) -> None:
+            self.hass.async_create_task(
+                self._confirm_wave(entry_id, bucket["caidas"], now)
+            )
+
+        async_call_later(self.hass, WAVE_CONFIRM_MINUTES * 60, _confirmar)
+
+    async def _confirm_wave(self, entry_id: str, caidas: int, at: datetime) -> None:
+        """Una ola solo cuenta si se recuperó SOLA.
+
+        Si a los 10 min sigue muerta no era un transitorio: es un zombie, y de
+        eso ya se encarga la escalera de curación. Contarla aquí sería alarmar
+        dos veces por la misma falla.
+        """
+        # Si otro entry tuvo su ola en la misma ventana, se cayó la CASA
+        # (apagón, switch, wifi) y no este aparato: no se le apunta a nadie.
+        vecinas = [
+            eid
+            for eid, cuando in self._wave_flagged
+            if eid != entry_id
+            and abs((cuando - at).total_seconds()) <= WAVE_WINDOW_SECONDS
+        ]
+        # Podar aquí y no al final: la mayoría de las olas se descartan abajo,
+        # y con la poda en el camino feliz la lista solo crecería.
+        self._wave_flagged = [
+            (eid, cuando)
+            for eid, cuando in self._wave_flagged
+            if dt_util.utcnow() - cuando < timedelta(minutes=WAVE_CONFIRM_MINUTES * 2)
+        ]
+
+        config_entry = self.hass.config_entries.async_get_entry(entry_id)
+        if config_entry is None or config_entry.state is not ConfigEntryState.LOADED:
+            return
+        if self._wan_down():
+            return  # sin internet la falla es del entorno, no del aparato
+        watch = self._watch.get(entry_id)
+        if watch and (watch.strikes or watch.incurable):
+            return  # cruzó el umbral zombie: no era sub-umbral
+        dead, total = self._count_dead(config_entry)
+        if not total or (dead / total) >= self._opt(CONF_THRESHOLD, DEFAULT_THRESHOLD):
+            return  # no se recuperó
+
+        if vecinas:
+            _LOGGER.debug(
+                "Ola en %s descartada: %s entries más cayeron a la vez (fue la casa)",
+                config_entry.title,
+                len(vecinas),
+            )
+            return
+
+        self._waves.setdefault(entry_id, []).append(at)
+        _LOGGER.info(
+            "Ola sub-umbral en %s (%s): %s entidades cayeron juntas y volvieron "
+            "solas — %s en los últimos %s días",
+            config_entry.title,
+            config_entry.domain,
+            caidas,
+            len(self._waves[entry_id]),
+            WAVE_HISTORY_DAYS,
+        )
+        self.hass.bus.async_fire(
+            EVENT_WAVE,
+            {
+                "entry_id": entry_id,
+                "domain": config_entry.domain,
+                "title": config_entry.title,
+                "entidades": caidas,
+                "olas_en_ventana": len(self._waves[entry_id]),
+                "dias": WAVE_HISTORY_DAYS,
+            },
+        )
+        self._save_state()
+        await self.async_request_refresh()
+
+    def _scan_waves(self, data: VeladorData) -> None:
+        """Reincidencia: 3 olas en 7 días no son 3 sustos, es un aparato enfermo.
+
+        Hermana del flapping, pero por debajo del umbral: aquí Velador nunca
+        curó nada — no había nada que curar cuando llegó a mirar.
+        """
+        now = dt_util.utcnow()
+        ventana = timedelta(days=WAVE_HISTORY_DAYS)
+        for entry_id in list(self._waves):
+            config_entry = self.hass.config_entries.async_get_entry(entry_id)
+            recientes = [t for t in self._waves[entry_id] if now - t < ventana]
+            if config_entry is None or not recientes:
+                del self._waves[entry_id]
+                self._waves_active.discard(entry_id)
+                ir.async_delete_issue(self.hass, DOMAIN, f"waves_{entry_id}")
+                continue
+            self._waves[entry_id] = recientes
+            if len(recientes) < WAVE_REPEAT_THRESHOLD:
+                if entry_id in self._waves_active:
+                    self._waves_active.discard(entry_id)
+                    ir.async_delete_issue(self.hass, DOMAIN, f"waves_{entry_id}")
+                continue
+
+            info = {
+                "entry_id": entry_id,
+                "domain": config_entry.domain,
+                "title": config_entry.title,
+                "olas": len(recientes),
+                "dias": WAVE_HISTORY_DAYS,
+                "ultima": recientes[-1].isoformat(),
+            }
+            data.waves.append(info)
+            if entry_id in self._waves_active:
+                continue
+            self._waves_active.add(entry_id)
+            _LOGGER.warning(
+                "OLAS REINCIDENTES: %s (%s) tiró todas sus entidades %s veces en "
+                "%s días y se recuperó solo cada vez — eso es físico "
+                "(corriente, cable, el bridge muriéndose), no software",
+                config_entry.title,
+                config_entry.domain,
+                len(recientes),
+                WAVE_HISTORY_DAYS,
+            )
+            self.hass.bus.async_fire(EVENT_WAVE_RECURRENT, info)
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                f"waves_{entry_id}",
+                is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                learn_more_url="https://github.com/proscar87/velador#recurring-surges",
+                translation_key="waves",
+                translation_placeholders={
+                    "title": config_entry.title,
+                    "domain": config_entry.domain,
+                    "count": str(len(recientes)),
+                    "days": str(WAVE_HISTORY_DAYS),
+                },
+            )
 
     def _cadence_eligible(self, entity_id: str, state) -> bool:
         """Solo sensores numéricos periódicos: son los que tienen cadencia propia.

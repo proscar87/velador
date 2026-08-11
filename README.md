@@ -40,6 +40,30 @@ They're complementary, not competing. Velador only claims the last row: what is 
   Three dead out of forty is 7 %: invisible to any ratio, and yet the bathroom light won't turn on.
 - **What the restart broke** — a snapshot of what was healthy, compared after every reboot.
   If the HA version also changed, it says **possible breaking change** out loud.
+- **Recurring surges** — the hub that drops everything for two minutes and comes back on its
+  own, again and again. Individually harmless, collectively a dying device. See below.
+
+### Recurring surges
+
+A bridge reboots. A hundred entities go `unavailable` and are back before anything notices.
+No threshold is crossed, no canary waits that long, nothing heals because nothing was broken
+by the time anyone looked. Velador stays quiet, correctly — alerting on every blip would make
+it the boy who cried wolf.
+
+But the **repetition** is a diagnosis. A device that does this three times in a week has a
+loose power supply, a failing PSU or a bridge on its way out — and today the only way to learn
+that is archaeology across weeks of logs.
+
+So Velador counts instead of shouting. When ≥5 entities of the same integration (or half of
+them, whichever is larger) drop within 90 seconds, it waits ten minutes: if they came back on
+their own, that was a surge, and it's recorded. If they didn't, it was never a surge — it's a
+zombie, and the normal heal ladder owns it. Surges that hit several integrations at once are
+discarded too: that's the house, not the device.
+
+Three surges in seven days raises **one** repair that says what the pattern means. Every
+surge also fires `velador_wave`, so you can build your own counter;
+`sensor.velador_olas_reincidentes` carries the running total. The history is persisted — reincidence measured in weeks doesn't
+survive otherwise, and every restart would forgive the sick device.
 
 ## How it heals — with judgment
 
@@ -74,6 +98,7 @@ Add Integration → Velador**. Zero configuration needed to start.
 | `sensor.velador_zombies` | Current zombies + incurables + dead devices, detail in attributes |
 | `sensor.velador_congelados` | Stale sensors right now |
 | `sensor.velador_reauth_pendientes` | Integrations waiting on credentials, with age |
+| `sensor.velador_olas_reincidentes` | Integrations with repeated self-healing surges, detail in attributes |
 | `sensor.velador_revividas_total` | Integrations healed since last HA start |
 | `sensor.velador_integraciones_vigiladas` | How many entries are being watched (disabled by default) |
 
@@ -116,6 +141,7 @@ with native cards: no custom card dependency.
 | WAN entity | — | While it's down, cloud integrations are neither judged nor healed |
 | Auto-stale | off | Learn each sensor's cadence and flag the quiet ones |
 | Device-zombie hours | 0 (off) | Flag devices whose entities are ALL dead longer than this |
+| Recurring surges | on | Count massive transients that heal themselves, flag the repeat offenders |
 
 Helpers, `mobile_app`, HACS and similar meta-domains are always ignored.
 

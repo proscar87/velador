@@ -28,7 +28,8 @@
           "canary_minutes": "Minutes a canary must be unavailable before healing",
           "wan_entity": "WAN connectivity entity (optional: no internet, no cloud heals wasted)",
           "device_zombie_hours": "Device-zombie hours (0 = off): flag devices with ALL entities dead longer than this",
-          "auto_stale": "Auto-detect stale sensors (learns each sensor's own cadence)"
+          "auto_stale": "Auto-detect stale sensors (learns each sensor's own cadence)",
+          "wave_detect": "Detect recurring surges (a hub that drops everything and recovers on its own, over and over)"
         }
       }
     }
@@ -49,6 +50,9 @@
       },
       "reauth": {
         "name": "Reauth pending"
+      },
+      "waves": {
+        "name": "Recurring surges"
       }
     },
     "binary_sensor": {
@@ -100,6 +104,10 @@
     "restart_diff": {
       "title": "{count} integration(s) did not come back after the restart",
       "description": "These were healthy before the last restart and are not now: {entries}.\n\nNothing else will tell you this: a config entry that quietly fails to return after a reboot looks the same as one that was never there."
+    },
+    "waves": {
+      "title": "Recurring surges: {title}",
+      "description": "**{title}** ({domain}) has dropped all of its entities and recovered on its own {count} times in the last {days} days.\n\nNo single one of those was worth an alert — each lasted a couple of minutes and healed itself, which is why nothing ever flagged it. The repetition is the signal: a bridge that keeps rebooting, a loose power supply, a failing PSU. Reloading will not fix this one — check the physical device."
     },
     "restart_diff_update": {
       "title": "{count} integration(s) did not survive the Home Assistant update",

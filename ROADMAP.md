@@ -1,6 +1,6 @@
 # ROADMAP — Velador
 
-> **Estado: todas las features del roadmap original están liberadas (última: v0.8.0).**
+> **Estado: todas las features del roadmap original están liberadas (última: v0.9.0).**
 > Lo que siga sale de uso real y de lo que pida la gente, no de esta lista.
 >
 > **La v1.0 se reserva a propósito.** Un 1.0 dice "estable y probado por gente que no soy yo":
@@ -110,7 +110,7 @@ PR a `home-assistant/brands` (icon/logo 512×512), release taggeado con zip, PR 
 **~~README que convierte + kit de arranque~~ — LIBERADO en v1.0**
 Hero con screenshot del Repair, badges, y la tabla "¿por qué no basta X?" contra Watchman (audita refs, no revive), Spook (encuentra fantasmas, no cura) y el retry nativo de HA (no cubre loaded-pero-muerto) — esa tabla ES el pitch. Más: carpeta `blueprints/` ("Velador → avísame como TÚ quieras" con el notify que el usuario elija — la notificación es SU automatización, opt-in, cero-push intacto) y `lovelace/velador-dashboard.yaml` copy-paste con cards nativas: 90% del valor de una custom card con 5% del esfuerzo.
 
-## v1.1 — Detector de olas sub-umbral ✅ (liberada 11-ago-2026)
+## v0.9 — Detector de olas sub-umbral ✅ (liberada 11-ago-2026)
 
 Cerrar el último punto ciego que quedaba documentado: el transitorio masivo que se cura solo. Un hub que rebota 2 minutos tira 100+ entidades y se auto-recupera: nunca cruza el 90%×2 strikes, ningún canario aguanta 20 min, y Velador —correctamente— calla. Pero la RECURRENCIA de esas olas es señal de hardware enfermo (corriente floja, bridge moribundo) que hasta hoy solo se descubría por arqueología.
 

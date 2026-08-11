@@ -25,7 +25,9 @@ from .const import (
     CONF_STALE_ENTITIES,
     CONF_STALE_MINUTES,
     CONF_WAN_ENTITY,
+    CONF_WAVE_DETECT,
     DEFAULT_AUTO_STALE,
+    DEFAULT_WAVE_DETECT,
     DEFAULT_CANARY_MINUTES,
     DEFAULT_DEVICE_ZOMBIE_HOURS,
     DEFAULT_STALE_MINUTES,
@@ -140,6 +142,10 @@ class VeladorOptionsFlow(OptionsFlow):
                         CONF_DEVICE_ZOMBIE_HOURS, DEFAULT_DEVICE_ZOMBIE_HOURS
                     ),
                 ): vol.All(vol.Coerce(int), vol.Range(min=0, max=168)),
+                vol.Optional(
+                    CONF_WAVE_DETECT,
+                    default=opts.get(CONF_WAVE_DETECT, DEFAULT_WAVE_DETECT),
+                ): bool,
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)
