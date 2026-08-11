@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.1 — 2026-08-11
+
+- **Piso de Home Assistant corregido a 2024.8** en `hacs.json` (declaraba 2024.6). El código
+  usa `state.last_reported`, que existe desde 2024.8. No reventaba —hay fallback a
+  `last_updated`— pero el fallback **cambia el significado de la detección**: `last_updated`
+  solo se mueve cuando el valor cambia, así que un sensor sano repitiendo el mismo valor se
+  veía congelado. Es justo el falso positivo que v0.2 se propuso evitar: en 2024.6/2024.7 la
+  detección de congelados reportaba basura en silencio.
+- Política de versionado escrita en `CONTRIBUTING.md`, y corregida en el ROADMAP la línea que
+  seguía diciendo que el kit de arranque salió "en v1.0" (salió en v0.8.0).
+
 ## 0.9.0 — 2026-08-11
 
 - **Olas reincidentes.** Un hub que rebota dos minutos tira 100+ entidades y se recupera solo:
