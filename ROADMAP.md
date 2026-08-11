@@ -104,10 +104,10 @@ Modo automático (default on, con override manual): aprender la cadencia típica
 **~~Diff post-arranque: "el restart te rompió X"~~ — LIBERADO en v0.7**
 Snapshot periódico en Store de disponibilidad por entry y por automatización; al terminar la gracia post-boot, comparar y levantar Repair con lista concreta de lo que estaba vivo y no volvió. Si cambió la versión de HA, etiquetar "posible breaking change del update" — el escenario del `kelvin`→`color_temp_kelvin` que rompió 7 automatizaciones en silencio.
 
-**~~Distribución: brands + release + submission~~ — HECHO (íconos locales v0.3.1; PR hacs/default#9763 en cola)**
-PR a `home-assistant/brands` (icon/logo 512×512), release taggeado con zip, PR a `hacs/default`, y bump de `homeassistant` en hacs.json a 2024.8 (el código usa `last_reported`). Hoy instalar exige copiar una URL de custom repository — fricción que filtra al 95%.
+**~~Distribución: brands + release + submission~~ — HECHO (íconos locales v0.3.1; piso 2024.8 en v0.9.1; PR hacs/default#9763 en cola)**
+PR a `home-assistant/brands` (icon/logo 512×512), release taggeado, PR a `hacs/default`, y bump de `homeassistant` en hacs.json a 2024.8 (el código usa `last_reported`). Hoy instalar exige copiar una URL de custom repository — fricción que filtra al 95%.
 
-**~~README que convierte + kit de arranque~~ — LIBERADO en v1.0**
+**~~README que convierte + kit de arranque~~ — LIBERADO en v0.8.0**
 Hero con screenshot del Repair, badges, y la tabla "¿por qué no basta X?" contra Watchman (audita refs, no revive), Spook (encuentra fantasmas, no cura) y el retry nativo de HA (no cubre loaded-pero-muerto) — esa tabla ES el pitch. Más: carpeta `blueprints/` ("Velador → avísame como TÚ quieras" con el notify que el usuario elija — la notificación es SU automatización, opt-in, cero-push intacto) y `lovelace/velador-dashboard.yaml` copy-paste con cards nativas: 90% del valor de una custom card con 5% del esfuerzo.
 
 ## v0.9 — Detector de olas sub-umbral ✅ (liberada 11-ago-2026)
