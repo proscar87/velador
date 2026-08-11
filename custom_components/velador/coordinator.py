@@ -44,9 +44,19 @@ from .const import (
     CONF_STALE_ENTITIES,
     CONF_STALE_MINUTES,
     CONF_WAN_ENTITY,
+    CONF_WAVE_DETECT,
     DEFAULT_CANARY_MINUTES,
     DEFAULT_DEVICE_ZOMBIE_HOURS,
+    DEFAULT_WAVE_DETECT,
     EVENT_DEBOUNCE_SECONDS,
+    EVENT_WAVE,
+    EVENT_WAVE_RECURRENT,
+    WAVE_CONFIRM_MINUTES,
+    WAVE_HISTORY_DAYS,
+    WAVE_MIN_ENTITIES,
+    WAVE_MIN_RATIO,
+    WAVE_REPEAT_THRESHOLD,
+    WAVE_WINDOW_SECONDS,
     EVENT_DEVICE_ZOMBIE,
     EVENT_FLAPPING,
     EVENT_REAUTH_NEEDED,
@@ -157,6 +167,7 @@ class VeladorData:
     stale: list[dict] = field(default_factory=list)
     reauth: list[dict] = field(default_factory=list)
     device_zombies: list[dict] = field(default_factory=list)
+    waves: list[dict] = field(default_factory=list)
     watched: int = 0
     healed_total: int = 0
     last_scan: datetime | None = None

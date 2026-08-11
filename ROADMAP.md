@@ -1,5 +1,8 @@
 # ROADMAP — Velador
 
+> **Estado: v1.0 liberada — el roadmap original está completo.** Lo que siga sale de uso real
+> y de lo que pida la gente, no de esta lista. Las ideas en evaluación quedan más abajo.
+
 Velador detecta y cura la muerte silenciosa en Home Assistant: integraciones zombie, sensores congelados y todo lo que falla sin avisar. Lo que NO va a ser: notificador push, gestor de Zigbee, plataforma de métricas ni dashboard — la señal siempre será Repairs + entidades + eventos, con cero red propia y cero dependencias.
 
 ## La frontera (regla de producto)
@@ -89,7 +92,7 @@ Listener barato de transiciones a `unavailable` que encola un chequeo dirigido d
 
 **v0.7 — Diff post-arranque.** Foto del último estado sano; al volver de un reinicio dice qué no regresó, y si cambió la versión de HA lo marca como posible breaking change.
 
-## v1.0 — Listo para la tienda default de HACS
+## v1.0 — Listo para la tienda default de HACS ✅ (liberada 11-ago-2026)
 
 **~~Auto-stale: congelados sin configurar lista~~ — LIBERADO en v0.6**
 Modo automático (default on, con override manual): aprender la cadencia típica por entidad con `state_class: measurement` (mediana rodante de `last_reported`, ~24h) y declarar congelado a >5× su propia cadencia con piso de 30 min. Honestidad obligada: sensores push-on-change tienen cadencia irregular — la heurística reduce falsos positivos, no los elimina; documentarlo y dar opt-out claro. Es la diferencia entre "script útil para quien sabe" y "lo instalas y te cuida".
@@ -100,7 +103,7 @@ Snapshot periódico en Store de disponibilidad por entry y por automatización; 
 **~~Distribución: brands + release + submission~~ — HECHO (íconos locales v0.3.1; PR hacs/default#9763 en cola)**
 PR a `home-assistant/brands` (icon/logo 512×512), release taggeado con zip, PR a `hacs/default`, y bump de `homeassistant` en hacs.json a 2024.8 (el código usa `last_reported`). Hoy instalar exige copiar una URL de custom repository — fricción que filtra al 95%.
 
-**README que convierte + kit de arranque**
+**~~README que convierte + kit de arranque~~ — LIBERADO en v1.0**
 Hero con screenshot del Repair, badges, y la tabla "¿por qué no basta X?" contra Watchman (audita refs, no revive), Spook (encuentra fantasmas, no cura) y el retry nativo de HA (no cubre loaded-pero-muerto) — esa tabla ES el pitch. Más: carpeta `blueprints/` ("Velador → avísame como TÚ quieras" con el notify que el usuario elija — la notificación es SU automatización, opt-in, cero-push intacto) y `lovelace/velador-dashboard.yaml` copy-paste con cards nativas: 90% del valor de una custom card con 5% del esfuerzo.
 
 ---

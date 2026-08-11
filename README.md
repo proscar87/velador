@@ -1,38 +1,104 @@
 # Velador
 
-**Watches over your Home Assistant integrations and revives the ones that die silently.**
+**Home Assistant says the integration is fine. Its entities say otherwise. Velador is the one that notices — and revives it.**
 
-A *velador* is a night watchman. This one guards against the most annoying failure mode in Home Assistant: the **zombie integration** — a config entry that reports as `loaded` while most or all of its entities sit `unavailable`. Home Assistant shows everything green; your automations silently stop working. It happens after power outages, HA restarts, cloud hiccups and token expirations, and nothing in core or HACS detects it.
+[![hacs][hacs-badge]][hacs-url]
+[![release][release-badge]][release-url]
+![hassfest][hassfest-badge]
+![license][license-badge]
 
-Velador does three things:
+A *velador* is a night watchman. This one guards against the failure mode nothing else
+catches: the **zombie integration** — a config entry reporting `loaded` while most of its
+entities sit `unavailable`. Home Assistant shows everything green. Your automations quietly
+stop working. You find out days later, from a hole in your data.
 
-1. **Detects** — every 5 minutes it scans all loaded config entries. If an integration with enough entities has ≥90% of them `unavailable` for 2 consecutive scans, it's declared a zombie. A grace period after HA start avoids false positives from boot transients.
-2. **Heals** — it reloads the zombie config entry automatically (with a cooldown so it never hammers). Most zombies revive with a single reload.
-3. **Escalates** — if 2 reloads don't fix it, the integration is marked *incurable* (expired token, pending reauth, dead hardware) and Velador stops reloading and raises a Repair issue asking for human attention. No notification spam, no push — just Repairs, entities and events.
+It happens after power outages, HA restarts, cloud hiccups and expired tokens. Core doesn't
+detect it. Nothing in HACS detects it. That's why this exists.
+
+## Why isn't X enough?
+
+| Tool | Territory | The question it answers |
+|---|---|---|
+| **Watchman** | Static config | "Does your YAML point at something that doesn't exist?" |
+| **Spook** | Broken references | "Are there ghosts in your automations and dashboards?" |
+| **HA's native retry** | Entries that failed to load | "Should I retry the setup that failed?" |
+| **Velador** | **Live runtime state + action** | **"Is what HA calls alive actually alive — and if not, can I revive it?"** |
+
+They're complementary, not competing. Velador only claims the last row: what is happening
+*right now*, and doing something about it.
+
+## What it catches
+
+- **Zombie integrations** — `loaded` with ≥90 % of entities `unavailable`. Event-driven
+  detection (worst case ~1 min) with a 5-minute scan as safety net.
+- **Stale sensors** — still "available", silently frozen. By explicit list, or **automatically
+  by learned cadence**: it learns how often each numeric sensor normally reports and flags it
+  when it goes quiet for more than 5× its own rhythm.
+- **Partial death** — canary entities heal their integration without waiting for the 90 %
+  ratio. One dead current-clamp out of four never reaches 90 %.
+- **Dead devices** — every entity of one device gone, inside an otherwise healthy integration.
+  Three dead out of forty is 7 %: invisible to any ratio, and yet the bathroom light won't turn on.
+- **What the restart broke** — a snapshot of what was healthy, compared after every reboot.
+  If the HA version also changed, it says **possible breaking change** out loud.
+
+## How it heals — with judgment
+
+Reloading blindly is worse than not reloading. Velador:
+
+- **Backs off exponentially** with jitter instead of hammering.
+- **Knows when reauth is pending** and stops burning reloads — credentials are not a
+  connectivity problem.
+- **Treats "incurable" as temporary**: a half-open probe retries once a day, because cloud
+  outages heal themselves.
+- **Detects storms**: if 3+ integrations drop in the same scan, that's an outage, not N
+  failures. One aggregated repair, sequential reloads — no stampede against a router that
+  just rebooted.
+- **Detects flapping**: revives that keep recurring mean the problem is physical. It stops
+  healing and says so.
+- **Never reloads a hub** (mqtt, zha, zwave_js…) because one sensor went quiet.
+- **Freezes judgment when the internet is down** — that failure belongs to the environment.
+- **Never auto-heals from a heuristic.** Auto-detected stale sensors and dead devices are
+  reported, not reloaded.
+
+## Install
+
+Via [HACS](https://hacs.xyz): add `https://github.com/proscar87/velador` as a custom
+repository (type: Integration), install, restart HA, then **Settings → Devices & Services →
+Add Integration → Velador**. Zero configuration needed to start.
 
 ## Entities
 
 | Entity | What it is |
 |---|---|
 | `binary_sensor.velador_problema` | `on` when any zombie or incurable exists (device class: problem) |
-| `sensor.velador_zombies` | Count of current zombies + incurables, with full detail in attributes |
-| `sensor.velador_congelados` | Stale sensors currently detected, detail in attributes |
+| `sensor.velador_zombies` | Current zombies + incurables + dead devices, detail in attributes |
+| `sensor.velador_congelados` | Stale sensors right now |
+| `sensor.velador_reauth_pendientes` | Integrations waiting on credentials, with age |
 | `sensor.velador_revividas_total` | Integrations healed since last HA start |
 | `sensor.velador_integraciones_vigiladas` | How many entries are being watched (disabled by default) |
-| `sensor.velador_reauth_pendientes` | Integrations with an open reauth flow (reload won't fix them), with age — build YOUR signal from it |
 
-## Events (for your own automations)
+## Services
 
-- `velador_zombie_detected` — `{entry_id, domain, title, dead, total, examples, zombie_since}`
-- `velador_healed` — `{entry_id, domain, title}`
-- `velador_incurable` — same payload as detected
-- `velador_stale_detected` — `{entity_id, state, last_reported, minutes_stale}`
-- `velador_stale_recovered` — `{entity_id}`
-- `velador_reauth_needed` — `{entry_id, domain, title, ...}` (reload won't fix it; credentials will)
-- `velador_storm_detected` — `{count, at, entries}` (≥3 new zombies in one scan = outage, not N failures)
-- `velador_flapping` — `{entry_id, domain, title, heals_window}` (revives over and over: the problem is physical)
-- `velador_device_zombie` — `{device_id, name, area, entities, dead_hours}`
-- `velador_healed` now includes `downtime_min` and `attempts_used` (real MTTR)
+- **`velador.heal`** — force the heal cycle (resets strikes, cooldowns, incurable and
+  flapping). Without `entry_id` it heals everything currently sick: wire it to "power is
+  back" and the whole house self-recovers.
+- **`velador.audit`** — returns the full watch table as response data, for scripts and
+  conversation agents.
+
+## Notifications, your way
+
+Velador **never sends push notifications**. Signal lives in Repairs, entities and events —
+by design, so it can never become the thing that wakes you at 3 a.m. for something it was
+about to fix on its own.
+
+If you do want to be told, there's a blueprint that lets you pick the service and exactly
+which events deserve to interrupt you:
+
+**`blueprints/automation/velador/notificacion.yaml`** — start with *incurable* and *storm*.
+Those are the two that actually need hands.
+
+There's also a copy-paste dashboard in **`lovelace/velador-dashboard.yaml`**, built entirely
+with native cards: no custom card dependency.
 
 ## Options
 
@@ -42,37 +108,40 @@ Velador does three things:
 | Minimum entities | 3 | Entries with fewer live entities are ignored |
 | Strikes | 2 | Consecutive bad scans before declaring zombie |
 | Auto-heal | on | Reload the entry automatically |
-| Cooldown | 6 h | Minimum time between reloads of the same entry |
+| Cooldown | 6 h | Last step of the backoff ladder |
 | Grace | 15 min | Ignore everything right after HA starts |
-| Exclude domains | — | Comma-separated domains you never want touched (e.g. integrations that are *expected* to be offline) |
-| Stale entities | — | Entities watched for **staleness**: still "available" but silently frozen. Uses `last_reported`, so a healthy sensor repeating the same value is NOT stale |
-| Stale minutes | 60 | Minutes without reporting before declaring an entity stale |
-| Canary entities | — | Critical entities that heal their owning integration directly when unavailable — catches PARTIAL death the ratio never sees |
-| Canary minutes | 20 | How long a canary must be unavailable before healing |
-| WAN entity | — | Connectivity entity; while it's down, cloud integrations are neither judged nor healed (the failure is the environment), and cooldowns are released when it recovers |
-| Device-zombie hours | 0 (off) | Flag devices whose entities are ALL dead longer than this — the blind spot the ratio never sees (3 dead of 40 = 7%) |
+| Exclude domains | — | Integrations that are *expected* to be offline |
+| Stale entities / minutes | — / 60 | Explicit staleness watch (these ones do get healed) |
+| Canary entities / minutes | — / 20 | Critical entities that heal their integration directly |
+| WAN entity | — | While it's down, cloud integrations are neither judged nor healed |
+| Auto-stale | off | Learn each sensor's cadence and flag the quiet ones |
+| Device-zombie hours | 0 (off) | Flag devices whose entities are ALL dead longer than this |
 
 Helpers, `mobile_app`, HACS and similar meta-domains are always ignored.
 
-## Services
-
-- `velador.heal` — force the heal cycle (resets strikes, cooldowns, incurable and flapping, then reloads). Without `entry_id` it heals everything currently sick: wire it to "power is back" and the whole house self-recovers.
-- `velador.audit` — returns the full watch table as response data, consumable by scripts and conversation agents.
-
-## How it heals (v0.5)
-
-Detection is event-driven (a transition to `unavailable` triggers a debounced check in ~1 min; the 5-minute scan remains as safety net). Reloads back off exponentially (30 min → 2 h → your cooldown) with jitter; after 3 failed attempts the integration is *incurable* — but not terminal: a half-open probe retries once a day, because cloud outages heal themselves. If an integration revives 3+ times in 24 h it is flagged **unstable** (the reload is masking a physical problem) and auto-heal stops. When ≥3 integrations die in the same scan, **storm mode** raises ONE repair and reloads them sequentially instead of stampeding your router. Every reload is probed 90 s later so incidents close immediately, with real downtime in the `velador_healed` event. Incurable repairs carry a **"Revive now"** button.
-
-## Install
-
-Via [HACS](https://hacs.xyz): add `https://github.com/proscar87/velador` as a custom repository (type: Integration), install, restart HA, then **Settings → Devices & Services → Add Integration → Velador**. Zero configuration needed.
-
 ## Why this exists
 
-Born in a real smart home (1,800+ entities, 130+ integrations) that survived a Mexican summer of CFE power outages. After every outage or HA update some integration would load as a zombie — Emporia, VeSync, Eight Sleep, Tuya, vehicle APIs — and we'd find out days later from a hole in the data. We rebuilt this watchdog three times as YAML automations before accepting it should be code in a repo.
+Born in a real smart home — 3,800 entities, 130 integrations — that survived a Mexican summer
+of power cuts. After every outage or HA update, some integration would come back as a zombie:
+energy monitoring, smart plugs, beds, vehicle APIs. We'd find out days later from a gap in the
+graphs. We rebuilt this watchdog three times as YAML automations before accepting it should be
+code in a repo.
 
-**0.2** added stale-entity detection: a sensor frozen for hours is a liar, not a healthy sensor — the failure mode that blinded our edge-triggered watchdogs for 3 hours after an outage. See [ROADMAP.md](ROADMAP.md) for what's next and [CHANGELOG.md](CHANGELOG.md) for history.
+Every feature here has a scar behind it. The reauth awareness exists because two reloads and
+twelve hours of cooldown were burned on an expired token. The storm mode exists because ten
+simultaneous reloads against a rebooting router create the very second strike they were meant
+to prevent. The persistent memory exists because an HA update wiped everything Velador had
+learned and it re-diagnosed known-incurable integrations from scratch.
+
+See [ROADMAP.md](ROADMAP.md) for what's next and [CHANGELOG.md](CHANGELOG.md) for history.
 
 ## License
 
 MIT — © proscar87
+
+[hacs-badge]: https://img.shields.io/badge/HACS-Custom-41BDF5.svg
+[hacs-url]: https://github.com/hacs/integration
+[release-badge]: https://img.shields.io/github/v/release/proscar87/velador
+[release-url]: https://github.com/proscar87/velador/releases
+[hassfest-badge]: https://img.shields.io/badge/hassfest-passing-brightgreen.svg
+[license-badge]: https://img.shields.io/badge/license-MIT-blue.svg

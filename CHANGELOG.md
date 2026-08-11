@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.0.0 — 2026-08-11
+
+Cierra el roadmap completo. Velador pasa de "script útil para quien sabe" a integración que
+se instala y cuida sola.
+
+- **Blueprint de notificación** (`blueprints/automation/velador/notificacion.yaml`): Velador
+  sigue sin mandar push por diseño, pero ahora hay un puente opcional donde **tú** eliges el
+  servicio y qué eventos merecen interrumpirte. Recomendación incluida: empezar solo con
+  *incurable* y *tormenta*, que son los que piden manos.
+- **Dashboard copy-paste** (`lovelace/velador-dashboard.yaml`): tarjeta de estado que cambia
+  según haya problema o no, vistazo de contadores, botones para `heal` y `audit`, e historial
+  de 24 h. **Solo tarjetas nativas**, cero dependencias de HACS.
+- **README reescrito**: la tabla "¿por qué no basta Watchman/Spook/el retry de core?" ahora es
+  lo primero que se ve, porque ES el argumento del proyecto. Más badges, entidades, servicios
+  y la sección de por qué existe — cada feature con la cicatriz que la originó.
+
 ## 0.7.0 — 2026-08-11
 
 - **Diff post-arranque — "el restart te rompió X".** Velador guarda una foto de qué integraciones estaban sanas y, al volver de un reinicio, avisa cuáles no regresaron. Si además cambió la versión de Home Assistant, lo marca como **posible breaking change del update** y lo dice en el Repair. Era el hueco que quedaba: un entry que falla en silencio tras un reboot se ve igual que uno que nunca estuvo.
