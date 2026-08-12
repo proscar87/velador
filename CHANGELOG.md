@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.2 — 2026-08-11
+
+- **El diff post-arranque nunca pudo detectar un breaking change.** Leía la versión de Home
+  Assistant de `hass.config.version`, un atributo que no existe, así que siempre caía al
+  fallback `"?"`. Como la comparación era `"?" != "?"`, la bandera de *posible breaking change
+  del update* —la mitad del valor de v0.7— no podía dispararse jamás. Ahora se lee de
+  `homeassistant.const.__version__`. Encontrado en un despliegue real: la foto guardada decía
+  `HA ?` en una casa corriendo 2026.8.1.
+- Las fotos viejas (v0.7.0–v0.9.1) traen `"?"` guardado. Se tratan como **"no sé"**, no como
+  un cambio de versión: sin ese guardia, el primer reinicio tras actualizar levantaría un
+  falso "breaking change" en todas las instalaciones existentes.
+
 ## 0.9.1 — 2026-08-11
 
 - **Piso de Home Assistant corregido a 2024.8** en `hacs.json` (declaraba 2024.6). El código
