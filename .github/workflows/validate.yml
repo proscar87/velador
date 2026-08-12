@@ -17,3 +17,16 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
+  versionado:
+    # manifest / CHANGELOG / tag / hacs.json tienen que decir lo mismo.
+    # Sobre un tag, además verifica que el tag entregue ESE manifest.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Comprobar versionado
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            python3 scripts/check_version.py --tag "$GITHUB_REF_NAME"
+          else
+            python3 scripts/check_version.py
+          fi
