@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 
 from homeassistant.components.automation import automations_with_entity
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
+from homeassistant.const import __version__ as HA_VERSION
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
@@ -899,7 +900,7 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
             return
         self._snapshot = {
             "at": dt_util.utcnow().isoformat(),
-            "ha_version": getattr(self.hass.config, "version", None) or "?",
+            "ha_version": HA_VERSION,
             "entries": sanos,
         }
 
@@ -931,8 +932,10 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
             return
 
         ha_antes = previo.get("ha_version") or "?"
-        ha_ahora = getattr(self.hass.config, "version", None) or "?"
-        cambio_version = ha_antes != ha_ahora
+        ha_ahora = HA_VERSION
+        # Las fotos de v0.7.0–v0.9.1 guardaron "?" (el atributo del que se leía
+        # no existe): tratarlas como "no sé", no como un cambio de versión.
+        cambio_version = ha_antes not in ("?", ha_ahora)
         detalle = ", ".join(f"{t} ({m})" for t, m in perdidas)
         _LOGGER.warning(
             "Tras el arranque no volvieron %s integraciones: %s%s",
