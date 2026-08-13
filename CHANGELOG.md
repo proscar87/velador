@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.10.2 — 2026-08-13
+
+- **Histéresis al salir de crónica.** El ritmo decae solo entre olas y salta con cada una, así
+  que un entry rondando las 4 olas/día cruzaba el umbral en los dos sentidos varias veces por
+  semana: el Repair aparecía y desaparecía del panel, y **cada bajada re-disparaba
+  `velador_wave_recurrent`** con el log que dice "esto es físico (corriente, cable, el bridge
+  muriéndose)" sobre una integración de nube — exactamente el falso diagnóstico que v0.10.0
+  vino a eliminar. Ahora salir pide bajar claro (75% del umbral), no rozarlo. Simulado sobre
+  llegadas Poisson de 4/día durante 10 días: los anuncios de crónica bajan de 3.6 a 1.0 y los
+  falsos "esto es físico" de 4.0 a 1.2.
+- **La marca de crónica se persiste.** Sin ella, cada reinicio volvía a anunciar lo mismo y
+  quien tenga una automatización colgada de `velador_wave_chronic` recibía el aviso otra vez.
+  Observado en el despliegue de v0.10.1: las cuatro crónicas de la casa se re-anunciaron al
+  arrancar. `_waves_active` **no** se persiste a propósito — HA se lleva los Repairs en el
+  reinicio, así que ese sí tiene que volver a levantarse.
+- Una marca restaurada sin historial de olas detrás se descarta: `_scan_waves` no visita esos
+  entries, así que la marca nunca se limpiaría sola.
+
 ## 0.10.1 — 2026-08-13
 
 - **La marca de "crónica" se quedaba pegada.** Al calmarse una integración volvía a levantar
