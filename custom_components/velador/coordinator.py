@@ -1146,6 +1146,9 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
                     self.hass.bus.async_fire(EVENT_WAVE_CHRONIC, info)
                 continue
 
+            # Se calmó: vuelve a ser un aviso normal, y hay que soltar la marca
+            # o al reincidir se quedaría con el Repair pegado y sin evento.
+            self._waves_chronic.discard(entry_id)
             data.waves.append(info)
             if self._waves_active.get(entry_id) == len(recientes):
                 continue

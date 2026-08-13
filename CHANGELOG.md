@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.1 — 2026-08-13
+
+- **La marca de "crónica" se quedaba pegada.** Al calmarse una integración volvía a levantar
+  Repair, correcto, pero el marcador interno nunca se soltaba: si después recaía, quedaba
+  listada como crónica **y** con el Repair puesto, sin disparar el evento. Encontrado
+  releyendo el propio cambio de v0.10.0, no en producción.
+
 ## 0.10.0 — 2026-08-13
 
 - **La ola de nube no es la ola física.** Primera casa real con el detector de v0.9 puesto:
