@@ -51,7 +51,10 @@ from .const import (
     DEFAULT_WAVE_DETECT,
     EVENT_DEBOUNCE_SECONDS,
     EVENT_WAVE,
+    EVENT_WAVE_CHRONIC,
     EVENT_WAVE_RECURRENT,
+    WAVE_CHRONIC_MIN_SPAN_DAYS,
+    WAVE_CHRONIC_PER_DAY,
     WAVE_CONFIRM_MINUTES,
     WAVE_HISTORY_DAYS,
     WAVE_MIN_ENTITIES,
@@ -169,6 +172,7 @@ class VeladorData:
     reauth: list[dict] = field(default_factory=list)
     device_zombies: list[dict] = field(default_factory=list)
     waves: list[dict] = field(default_factory=list)
+    waves_chronic: list[dict] = field(default_factory=list)
     watched: int = 0
     healed_total: int = 0
     last_scan: datetime | None = None
@@ -206,7 +210,10 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
         self._waves: dict[str, list[datetime]] = {}
         self._wave_bucket: dict[str, dict] = {}
         self._wave_flagged: list[tuple[str, datetime]] = []
-        self._waves_active: set[str] = set()
+        # Guarda el conteo con el que se levantó cada Repair: si sube, hay que
+        # rehacerlo o el texto se queda congelado en el número del primer día.
+        self._waves_active: dict[str, int] = {}
+        self._waves_chronic: set[str] = set()
 
     @callback
     def async_start(self) -> "callable":
@@ -1090,6 +1097,10 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
 
         Hermana del flapping, pero por debajo del umbral: aquí Velador nunca
         curó nada — no había nada que curar cuando llegó a mirar.
+
+        No toda reincidencia es hardware: una integración de nube hace olas a
+        diario porque su API se cae, y para eso no hay cable que revisar. Esas
+        se separan por ritmo (ver WAVE_CHRONIC_PER_DAY) y se listan sin Repair.
         """
         now = dt_util.utcnow()
         ventana = timedelta(days=WAVE_HISTORY_DAYS)
@@ -1098,38 +1109,61 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
             recientes = [t for t in self._waves[entry_id] if now - t < ventana]
             if config_entry is None or not recientes:
                 del self._waves[entry_id]
-                self._waves_active.discard(entry_id)
-                ir.async_delete_issue(self.hass, DOMAIN, f"waves_{entry_id}")
+                self._forget_wave(entry_id)
                 continue
             self._waves[entry_id] = recientes
             if len(recientes) < WAVE_REPEAT_THRESHOLD:
-                if entry_id in self._waves_active:
-                    self._waves_active.discard(entry_id)
-                    ir.async_delete_issue(self.hass, DOMAIN, f"waves_{entry_id}")
+                self._forget_wave(entry_id)
                 continue
 
+            por_dia, observado = self._wave_rate(recientes, now)
             info = {
                 "entry_id": entry_id,
                 "domain": config_entry.domain,
                 "title": config_entry.title,
                 "olas": len(recientes),
                 "dias": WAVE_HISTORY_DAYS,
+                "por_dia": round(por_dia, 1),
                 "ultima": recientes[-1].isoformat(),
             }
-            data.waves.append(info)
-            if entry_id in self._waves_active:
+
+            if (
+                observado >= WAVE_CHRONIC_MIN_SPAN_DAYS
+                and por_dia >= WAVE_CHRONIC_PER_DAY
+            ):
+                data.waves_chronic.append(info)
+                if entry_id not in self._waves_chronic:
+                    self._forget_wave(entry_id)
+                    self._waves_chronic.add(entry_id)
+                    _LOGGER.info(
+                        "OLAS CRÓNICAS: %s (%s) hace %.1f olas al día — así es "
+                        "esta integración, no un aparato descomponiéndose; "
+                        "queda listada, sin Repair",
+                        config_entry.title,
+                        config_entry.domain,
+                        por_dia,
+                    )
+                    self.hass.bus.async_fire(EVENT_WAVE_CHRONIC, info)
                 continue
-            self._waves_active.add(entry_id)
-            _LOGGER.warning(
-                "OLAS REINCIDENTES: %s (%s) tiró todas sus entidades %s veces en "
-                "%s días y se recuperó solo cada vez — eso es físico "
-                "(corriente, cable, el bridge muriéndose), no software",
-                config_entry.title,
-                config_entry.domain,
-                len(recientes),
-                WAVE_HISTORY_DAYS,
-            )
-            self.hass.bus.async_fire(EVENT_WAVE_RECURRENT, info)
+
+            data.waves.append(info)
+            if self._waves_active.get(entry_id) == len(recientes):
+                continue
+            # Rehacer el Repair con el conteo nuevo: async_create_issue con el
+            # mismo id lo reemplaza, y si no, el texto miente al segundo día.
+            estrena = entry_id not in self._waves_active
+            self._waves_active[entry_id] = len(recientes)
+            if estrena:
+                _LOGGER.warning(
+                    "OLAS REINCIDENTES: %s (%s) tiró todas sus entidades %s veces "
+                    "en %s días y se recuperó solo cada vez — eso es físico "
+                    "(corriente, cable, el bridge muriéndose), no software",
+                    config_entry.title,
+                    config_entry.domain,
+                    len(recientes),
+                    WAVE_HISTORY_DAYS,
+                )
+                self.hass.bus.async_fire(EVENT_WAVE_RECURRENT, info)
             ir.async_create_issue(
                 self.hass,
                 DOMAIN,
@@ -1145,6 +1179,25 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
                     "days": str(WAVE_HISTORY_DAYS),
                 },
             )
+
+    def _forget_wave(self, entry_id: str) -> None:
+        """Baja el Repair y la marca de crónico. El historial no se toca."""
+        self._waves_chronic.discard(entry_id)
+        if self._waves_active.pop(entry_id, None) is not None:
+            ir.async_delete_issue(self.hass, DOMAIN, f"waves_{entry_id}")
+
+    @staticmethod
+    def _wave_rate(olas: list[datetime], now: datetime) -> tuple[float, float]:
+        """Ritmo de olas: cuántas por día, y días observados desde la primera.
+
+        El promedio se saca sobre lo observado y no sobre la ventana entera:
+        si el historial nació ayer, dividir entre 7 diría que todo es
+        esporádico. Y se mide en tiempo transcurrido, no en días de calendario:
+        una mala racha de 22:00 a 03:00 cruza la medianoche y contaría como
+        dos días siendo una sola noche.
+        """
+        observado = (now - olas[0]).total_seconds() / 86400
+        return len(olas) / max(observado, 1.0), observado
 
     def _cadence_eligible(self, entity_id: str, state) -> bool:
         """Solo sensores numéricos periódicos: son los que tienen cadencia propia.

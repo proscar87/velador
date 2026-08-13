@@ -65,6 +65,13 @@ surge also fires `velador_wave`, so you can build your own counter;
 `sensor.velador_olas_reincidentes` carries the running total. The history is persisted — reincidence measured in weeks doesn't
 survive otherwise, and every restart would forgive the sick device.
 
+Not every repeat is hardware. A cloud integration surges because its API goes down and comes
+back, several times a day, and there is no cable to check for that. So an integration that
+keeps a rate of **4 or more surges a day for over a day** is filed as chronic: it shows up in
+the `cronicos` attribute with its rate, and fires `velador_wave_chronic`, but raises no
+repair — the thing that shouts every day stops being read. A bad night stays a repair: the
+rate is measured over elapsed time, so a 22:00-to-03:00 streak counts as the one night it was.
+
 ## How it heals — with judgment
 
 Reloading blindly is worse than not reloading. Velador:
@@ -98,7 +105,7 @@ Add Integration → Velador**. Zero configuration needed to start.
 | `sensor.velador_zombies` | Current zombies + incurables + dead devices, detail in attributes |
 | `sensor.velador_congelados` | Stale sensors right now |
 | `sensor.velador_reauth_pendientes` | Integrations waiting on credentials, with age |
-| `sensor.velador_olas_reincidentes` | Integrations with repeated self-healing surges, detail in attributes |
+| `sensor.velador_olas_reincidentes` | Integrations with repeated self-healing surges; chronic ones listed apart in `cronicos` |
 | `sensor.velador_revividas_total` | Integrations healed since last HA start |
 | `sensor.velador_integraciones_vigiladas` | How many entries are being watched (disabled by default) |
 
