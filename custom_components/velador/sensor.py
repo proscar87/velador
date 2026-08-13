@@ -143,4 +143,10 @@ class WaveCountSensor(VeladorSensor):
 
     @property
     def extra_state_attributes(self) -> dict:
-        return {"reincidentes": self.coordinator.data.waves}
+        # Las crónicas van aparte y no cuentan para el estado: son integraciones
+        # de nube que hacen olas a diario, y meterlas aquí volvería el contador
+        # un número grande y permanente que nadie vuelve a mirar.
+        return {
+            "reincidentes": self.coordinator.data.waves,
+            "cronicos": self.coordinator.data.waves_chronic,
+        }

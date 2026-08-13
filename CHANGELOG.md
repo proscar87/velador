@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.10.0 — 2026-08-13
+
+- **La ola de nube no es la ola física.** Primera casa real con el detector de v0.9 puesto:
+  levantó cuatro Repairs en 36 horas y los cuatro eran integraciones de nube — growatt hizo
+  20 olas al día, emporia 11.6, starlink 10.5, tuya 6.9. Su API se cae y vuelve todo el día,
+  y el Repair decía "revisa el aparato físico". El dueño silenció tres de los cuatro, que es
+  el veredicto que importa. El conteo no separaba las dos cosas; el ritmo sí: lo físico hace
+  una o dos olas en días sueltos. Una integración que sostiene **≥4 olas/día por más de un
+  día** ahora se archiva como **crónica**: aparece en el atributo `cronicos` del sensor con su
+  ritmo y dispara `velador_wave_chronic`, pero no levanta Repair. El que grita siempre deja de
+  leerse.
+- El ritmo se mide sobre **tiempo transcurrido**, no sobre días de calendario: una racha de
+  22:00 a 03:00 cruza la medianoche y como "dos días" se habría archivado como crónica siendo
+  una sola mala noche. Esa noche sigue levantando Repair.
+- **El conteo del Repair se quedaba congelado.** Se creaba una vez y nunca se rehacía, así que
+  el texto seguía diciendo "14 veces" con el sensor en 31. Ahora se rehace cuando el número
+  sube; el log y el evento siguen disparando una sola vez, que es lo que no debe repetirse.
+- El sensor `velador_olas_reincidentes` ya no cuenta las crónicas: si lo hiciera sería un
+  número grande y permanente, justo lo que nadie vuelve a mirar.
+
 ## 0.9.2 — 2026-08-11
 
 - **El diff post-arranque nunca pudo detectar un breaking change.** Leía la versión de Home

@@ -1,7 +1,8 @@
 # ROADMAP — Velador
 
-> **Estado: todas las features del roadmap original están liberadas (última: v0.9.0).**
-> Lo que siga sale de uso real y de lo que pida la gente, no de esta lista.
+> **Estado: todas las features del roadmap original están liberadas; la última ola (v0.10.0)
+> ya no salió de esta lista sino de datos de una casa real.** Lo que siga viene de ahí y de lo
+> que pida la gente.
 >
 > **La v1.0 se reserva a propósito.** Un 1.0 dice "estable y probado por gente que no soy yo":
 > se marcará cuando esté en la tienda default de HACS y haya uso real de terceros. Hoy el
@@ -117,6 +118,14 @@ Cerrar el último punto ciego que quedaba documentado: el transitorio masivo que
 Implementado: ≥5 entidades del mismo entry (o la mitad, lo que sea mayor) cayendo en 90 s marcan una ola candidata; se confirma a los 10 min **solo si volvieron solas** — si siguen muertas nunca fue una ola, es un zombie y de eso ya se encarga la escalera. Se descartan las olas que pegan a varios entries a la vez (eso fue la casa, no el aparato) y las que ocurren con la WAN caída. Historial persistido en Store, porque la reincidencia se mide en semanas. Repair único al llegar a 3 olas en 7 días, evento por cada ola confirmada para quien quiera su contador, y `sensor.velador_olas_reincidentes`. Sin auto-heal: recargar no arregla una fuente floja.
 
 Caso de origen: el Hue Bridge de la casa rebotó 4+ veces en el verano (jun, jul, 2×ago) y cada vez se diagnosticó a mano; la casa lo cubría con una automatización de contador que esto reemplaza.
+
+## v0.10 — Calibrar el detector con datos reales ✅ (liberada 13-ago-2026)
+
+No fue una feature planeada: fue lo que dijeron las primeras 36 horas del detector corriendo en una casa de verdad. Levantó cuatro Repairs y los cuatro eran integraciones de nube (growatt 20 olas/día, emporia 11.6, starlink 10.5, tuya 6.9) — su API se cae y vuelve, y el Repair decía "revisa el aparato físico". El dueño silenció tres de los cuatro. El Hue Bridge que motivó todo v0.9 no registró **ni una** ola en esos dos días: la feature funciona, pero el caso de origen sigue sin confirmarse.
+
+Implementado: el ritmo —no el conteo— separa las dos cosas. ≥4 olas/día sostenidas por más de un día se archivan como **crónicas**: se listan en el atributo `cronicos` con su ritmo y disparan `velador_wave_chronic`, sin Repair. Medido sobre tiempo transcurrido y no sobre días de calendario, para que una racha de 22:00 a 03:00 no se lea como dos días. Y el conteo del Repair se rehace cuando sube, que estaba congelado en el número del primer día.
+
+Esto es, por otra ruta, lo que la idea descartada de "línea base con recorder" quería: aprender qué es crónico sin tocar recorder, solo con lo que Velador ya persiste.
 
 ---
 

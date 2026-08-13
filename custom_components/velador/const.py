@@ -129,3 +129,14 @@ WAVE_HISTORY_DAYS = 7
 WAVE_REPEAT_THRESHOLD = 3       # 3 olas en la ventana = "esto es físico"
 EVENT_WAVE = "velador_wave"
 EVENT_WAVE_RECURRENT = "velador_wave_recurrent"
+
+# --- v0.10: la ola de nube no es la ola física ---
+# Primera casa real con el detector puesto: cuatro integraciones de nube
+# (growatt, emporia, starlink, tuya) hicieron entre 7 y 20 olas POR DÍA — su
+# API se cae y vuelve, todo el día, y eso no lo arregla nadie mirando un cable.
+# El conteo no las separa de un bridge moribundo; la densidad sí: lo físico
+# hace una o dos olas en días sueltos. Arriba de este ritmo no hay Repair,
+# solo se listan: el que grita siempre deja de leerse.
+WAVE_CHRONIC_PER_DAY = 4.0        # olas/día promedio sobre lo observado
+WAVE_CHRONIC_MIN_SPAN_DAYS = 1.0  # ...sostenido, no una racha de una noche
+EVENT_WAVE_CHRONIC = "velador_wave_chronic"
