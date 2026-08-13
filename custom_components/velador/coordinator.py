@@ -53,6 +53,7 @@ from .const import (
     EVENT_WAVE,
     EVENT_WAVE_CHRONIC,
     EVENT_WAVE_RECURRENT,
+    WAVE_CHRONIC_EXIT_RATIO,
     WAVE_CHRONIC_MIN_SPAN_DAYS,
     WAVE_CHRONIC_PER_DAY,
     WAVE_CONFIRM_MINUTES,
@@ -334,6 +335,11 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
             ]
             if recientes:
                 self._waves[entry_id] = recientes
+        # Solo de entries cuyo historial sobrevivió: una marca sin olas detrás
+        # nunca se limpiaría, porque _scan_waves ni siquiera los visita.
+        self._waves_chronic = {
+            eid for eid in (raw.get("waves_chronic") or []) if eid in self._waves
+        }
         restored = 0
         for entry_id, watch_raw in (raw.get("watch") or {}).items():
             # Solo restaurar entries que siguen existiendo.
@@ -406,6 +412,12 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
                 for eid, olas in self._waves.items()
                 if olas
             },
+            # Quién ya está archivado como crónico. Sin esto, cada restart lo
+            # vuelve a anunciar: el evento se dispara de nuevo y quien tenga una
+            # automatización colgada de él recibe el mismo aviso otra vez.
+            # `_waves_active` NO se persiste a propósito: HA se lleva los Repairs
+            # en el reinicio, así que ese sí tiene que volver a levantarse.
+            "waves_chronic": sorted(self._waves_chronic),
         }
 
     def _save_state(self) -> None:
@@ -1127,12 +1139,13 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
                 "ultima": recientes[-1].isoformat(),
             }
 
-            if (
-                observado >= WAVE_CHRONIC_MIN_SPAN_DAYS
-                and por_dia >= WAVE_CHRONIC_PER_DAY
-            ):
+            # Salir de crónica pide margen: rozar el umbral desde arriba no
+            # basta, o el Repair aparece y desaparece del panel cada rato.
+            ya_cronica = entry_id in self._waves_chronic
+            umbral = WAVE_CHRONIC_PER_DAY * (WAVE_CHRONIC_EXIT_RATIO if ya_cronica else 1.0)
+            if observado >= WAVE_CHRONIC_MIN_SPAN_DAYS and por_dia >= umbral:
                 data.waves_chronic.append(info)
-                if entry_id not in self._waves_chronic:
+                if not ya_cronica:
                     self._forget_wave(entry_id)
                     self._waves_chronic.add(entry_id)
                     _LOGGER.info(

@@ -139,4 +139,10 @@ EVENT_WAVE_RECURRENT = "velador_wave_recurrent"
 # solo se listan: el que grita siempre deja de leerse.
 WAVE_CHRONIC_PER_DAY = 4.0        # olas/día promedio sobre lo observado
 WAVE_CHRONIC_MIN_SPAN_DAYS = 1.0  # ...sostenido, no una racha de una noche
+# Histéresis: el ritmo decae solo entre olas y salta con cada una, así que un
+# entry rondando el umbral lo cruza en los dos sentidos varias veces por
+# semana. Sin margen de salida, cada bajada re-levanta el Repair y grita "esto
+# es físico" sobre una integración de nube — justo lo que esta ola vino a
+# eliminar. Para dejar de ser crónica hay que bajar CLARO, no rozar.
+WAVE_CHRONIC_EXIT_RATIO = 0.75
 EVENT_WAVE_CHRONIC = "velador_wave_chronic"

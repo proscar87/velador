@@ -71,6 +71,9 @@ keeps a rate of **4 or more surges a day for over a day** is filed as chronic: i
 the `cronicos` attribute with its rate, and fires `velador_wave_chronic`, but raises no
 repair — the thing that shouts every day stops being read. A bad night stays a repair: the
 rate is measured over elapsed time, so a 22:00-to-03:00 streak counts as the one night it was.
+Leaving the chronic file takes a clear drop, not a graze at the line, so an integration
+hovering near the threshold doesn't flip the repair on and off every few hours. The filing
+survives restarts too — otherwise every reboot would announce the same thing again.
 
 ## How it heals — with judgment
 
