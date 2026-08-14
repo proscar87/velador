@@ -17,6 +17,18 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
+  pruebas:
+    # Contra Home Assistant de verdad, no contra dobles: es la única forma de
+    # cazar el código que lee atributos que no existen.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: pip install -r requirements_test.txt
+      - run: pytest
   versionado:
     # manifest / CHANGELOG / tag / hacs.json tienen que decir lo mismo.
     # Sobre un tag, además verifica que el tag entregue ESE manifest.

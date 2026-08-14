@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.10.3 — 2026-08-14
+
+- **Los temporizadores no se cancelaban al descargar la entry.** Había tres `async_call_later`
+  sueltos —el debounce de 60 s, el confirmador de olas de 10 min y el probe post-reload de
+  90 s— y ninguno se soltaba al descargar. Como **un cambio de opciones recarga la entry**, el
+  confirmador del coordinator viejo se disparaba diez minutos después y escribía su copia del
+  historial de olas encima de la que ya llevaba el nuevo. Ahora todos pasan por un registro
+  que se vacía al descargar.
+- **Suite de pruebas en el repo, contra Home Assistant de verdad.** `pytest` +
+  `pytest-homeassistant-custom-component`, con registry, issue registry y Store reales, y un
+  job nuevo en CI. La fuga de temporizadores de arriba la encontró el arnés de HA quejándose
+  al terminar una prueba — ningún doble podía verla, igual que con el bug de v0.9.2. Incluye
+  una prueba explícita de que `hass.config.version` no existe, para que si algún día HA lo
+  agrega, se entere alguien.
+
 ## 0.10.2 — 2026-08-13
 
 - **Histéresis al salir de crónica.** El ritmo decae solo entre olas y salta con cada una, así
