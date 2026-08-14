@@ -27,6 +27,8 @@ jobs:
         with:
           python-version: "3.14"
           cache: pip
+          # Sin esto busca requirements.txt en la raíz y falla: aquí no hay.
+          cache-dependency-path: requirements_test.txt
       - run: pip install -r requirements_test.txt
       - run: pytest
   versionado:
