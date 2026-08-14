@@ -17,6 +17,15 @@
 
 ## Probar
 
+```bash
+pip install -r requirements_test.txt
+pytest
+```
+
+Las pruebas levantan Home Assistant de verdad (`pytest-homeassistant-custom-component`), con registry, issue registry y Store reales. Pesa medio giga y tarda un par de segundos por prueba; a cambio caza lo que ningún doble puede. Corren en CI en cada push.
+
+- **Deja que el arnés se queje de los temporizadores.** Si una prueba falla con *"Lingering timer"*, casi nunca es la prueba: es código que agenda algo y no lo cancela al descargar la entry. Así apareció que un cambio de opciones dejaba vivo el confirmador de olas de 10 minutos, que al dispararse escribía el historial del coordinator viejo encima del nuevo. No silencies el aviso con `expected_lingering_timers`.
+- **Una prueba de regresión que no falla contra el código viejo no prueba nada.** Antes de darla por buena, `git stash` el arreglo y comprueba que se pone roja.
 - **Los dobles no saben lo que no existe.** Si el código lee un atributo de un objeto de HA, verifícalo contra HA de verdad antes de liberar. Un `getattr(obj, "x", None)` con fallback silencioso se ve idéntico funcionando y roto: la detección de breaking change de v0.7 estuvo muerta tres versiones porque leía `hass.config.version`, que no existe, y siempre caía al `"?"`. Las pruebas con stubs pasaban — el stub no sabe que el atributo no existe.
 - Prefiere el atributo importado (`from homeassistant.const import __version__`) sobre el `getattr` defensivo: si desaparece, quieres un `ImportError` ruidoso en CI, no un fallback callado en producción.
 - Un fallback silencioso necesita justificación explícita en el código. `last_reported` la tiene (`or state.last_updated`, para instalaciones viejas); si no puedes escribir esa justificación en una línea, no pongas el fallback.

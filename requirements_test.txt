@@ -1,0 +1,4 @@
+# Levanta Home Assistant de verdad para las pruebas. Se fija la versión porque
+# cada release de este paquete trae una versión concreta de HA, y lo que se
+# quiere probar es contra la que corre la gente.
+pytest-homeassistant-custom-component==0.13.355

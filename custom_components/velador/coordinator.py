@@ -200,6 +200,8 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
         self._last_saved: str | None = None
         self._device_zombies_active: set[str] = set()
         self._event_refresh_pending = False
+        # Cancelables de async_call_later pendientes: se sueltan al descargar.
+        self._timers: set = set()
         # v0.6 — cadencia aprendida: entity_id -> {"gaps": [seg...], "last": iso, "median": seg}
         self._cadence: dict[str, dict] = {}
         self._auto_stale_active: set[str] = set()
@@ -217,6 +219,27 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
         self._waves_chronic: set[str] = set()
 
     @callback
+    def _later(self, delay: float, action) -> None:
+        """`async_call_later` que se cancela al descargar la entry.
+
+        Los temporizadores sueltos sobreviven un reload, y un cambio de
+        opciones recarga la entry. El de confirmación de olas dura 10 minutos:
+        al dispararse, el coordinator VIEJO escribe su copia del historial
+        encima de la que ya lleva el nuevo. Encontrado por el arnés de HA real
+        quejándose de un temporizador vivo al terminar la prueba.
+        """
+        pendiente: list = []
+
+        @callback
+        def _envuelto(now) -> None:
+            if pendiente:
+                self._timers.discard(pendiente[0])
+            action(now)
+
+        cancel = async_call_later(self.hass, delay, _envuelto)
+        pendiente.append(cancel)
+        self._timers.add(cancel)
+
     def async_start(self) -> "callable":
         """Detección por eventos: transición a unavailable → chequeo con debounce.
 
@@ -247,9 +270,19 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
                 self._event_refresh_pending = False
                 self.hass.async_create_task(self.async_request_refresh())
 
-            async_call_later(self.hass, EVENT_DEBOUNCE_SECONDS, _debounced)
+            self._later(EVENT_DEBOUNCE_SECONDS, _debounced)
 
-        return self.hass.bus.async_listen("state_changed", _on_state_changed)
+        unsub = self.hass.bus.async_listen("state_changed", _on_state_changed)
+
+        @callback
+        def _detener() -> None:
+            unsub()
+            for cancel in list(self._timers):
+                cancel()
+            self._timers.clear()
+            self._event_refresh_pending = False
+
+        return _detener
 
     async def async_service_heal(self, entry_id: str | None = None) -> dict:
         """Servicio velador.heal: forzar el ciclo reseteando strikes/cooldowns.
@@ -1035,7 +1068,7 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
                 self._confirm_wave(entry_id, bucket["caidas"], now)
             )
 
-        async_call_later(self.hass, WAVE_CONFIRM_MINUTES * 60, _confirmar)
+        self._later(WAVE_CONFIRM_MINUTES * 60, _confirmar)
 
     async def _confirm_wave(self, entry_id: str, caidas: int, at: datetime) -> None:
         """Una ola solo cuenta si se recuperó SOLA.
@@ -1509,7 +1542,7 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
         def _schedule_probe(_now) -> None:
             self.hass.async_create_task(self._probe_after_reload(entry_id))
 
-        async_call_later(self.hass, PROBE_DELAY_SECONDS, _schedule_probe)
+        self._later(PROBE_DELAY_SECONDS, _schedule_probe)
 
     def _on_healed(self, config_entry: ConfigEntry, watch: WatchState) -> None:
         now = dt_util.utcnow()
