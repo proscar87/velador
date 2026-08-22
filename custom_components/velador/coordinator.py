@@ -454,8 +454,19 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
         }
 
     def _save_state(self) -> None:
-        """Persistir solo si algo cambió (dirty-check para no moler la flash)."""
-        snapshot = json.dumps(self._dump_state(), sort_keys=True)
+        """Persistir solo si algo cambió (dirty-check para no moler la flash).
+
+        `cadence.last` se excluye del hash: cambia en casi cada escaneo para
+        cualquier sensor con auto_stale activo y no es información que valga
+        la pena persistir por sí sola — si se incluyera, el dirty-check nunca
+        frenaría nada mientras esa opción esté encendida.
+        """
+        dump = self._dump_state()
+        comparable = {
+            **dump,
+            "cadence": {eid: c["median"] for eid, c in dump["cadence"].items()},
+        }
+        snapshot = json.dumps(comparable, sort_keys=True)
         if snapshot == self._last_saved:
             return
         self._last_saved = snapshot
@@ -536,6 +547,12 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
                 # SETUP_RETRY y demás: el retry nativo de HA ya corre; templanza.
                 continue
 
+            # El entry sigue existiendo aunque este escaneo no pueda juzgarlo
+            # (p.ej. a mitad de un reload, con entidades momentáneamente
+            # ausentes): marcarlo visto ANTES de cualquier `continue` de esta
+            # sección evita que la limpieza de abajo borre su WatchState.
+            seen_entry_ids.add(config_entry.entry_id)
+
             ents = entities_by_entry.get(config_entry.entry_id, [])
             total = 0
             dead = 0
@@ -557,8 +574,6 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
 
                 if total < min_entities:
                     continue
-
-            seen_entry_ids.add(config_entry.entry_id)
             data.watched += 1
             if not setup_error and total and (dead / total) < threshold:
                 sanos[config_entry.entry_id] = config_entry.title

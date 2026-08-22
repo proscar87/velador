@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.10.4 — 2026-08-21
+
+- **Un reload en curso podía borrar la memoria del entry.** El escaneo marcaba un entry
+  como "visto" (`seen_entry_ids`) DESPUÉS del `continue` por pocas entidades — y durante
+  el unload/setup de un reload, `hass.states.get` devuelve `None` para sus entidades un
+  instante. Si un escaneo (el periódico o el disparado por eventos) caía justo ahí, el
+  entry se trataba como "ya no existe" y la limpieza de fin de escaneo le borraba el
+  `WatchState` completo: strikes, intentos, incurable y flapping, todos a cero. Ahora se
+  marca visto antes de cualquier `continue` de esa sección. Encontrado leyendo el código,
+  no en producción — por eso lleva prueba de regresión, no relato de un incidente real.
+- **El dirty-check de `_save_state` no frenaba nada con `auto_stale` activo.** Incluía
+  `cadence.last`, que cambia en casi cada escaneo para cualquier sensor `measurement` que
+  siga reportando — así que la comparación "¿cambió algo?" casi nunca coincidía y se
+  escribía a Store cada ~5 minutos indefinidamente, justo el desgaste de flash que el
+  propio comentario del código decía evitar. `last` se sigue persistiendo en cada
+  escritura real; solo se excluyó del hash que decide si hay que escribir.
+- Dos pruebas de regresión nuevas (`tests/test_memoria.py`), confirmadas en rojo contra
+  el código anterior antes de darlas por buenas.
+
 ## 0.10.3 — 2026-08-14
 
 - **Los temporizadores no se cancelaban al descargar la entry.** Había tres `async_call_later`
