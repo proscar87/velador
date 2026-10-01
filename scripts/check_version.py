@@ -25,8 +25,15 @@ HACS = RAIZ / "hacs.json"
 
 # APIs de core que el código usa, con la versión de HA que las introdujo.
 # Si agregas una, ponla aquí: el piso de hacs.json es un contrato.
+# La clave se busca tal cual en el código, así que tiene que ser algo que solo
+# aparezca por esa API: un `config_entry` a secas sale en todos lados y no
+# probaría nada.
 APIS_DE_CORE = {
     "last_reported": "2024.8",
+    # ConfigEntries.async_loaded_entries (__init__.py, al descargar).
+    "async_loaded_entries": "2024.9",
+    # OptionsFlow.config_entry lo pone HA; antes había que pasarlo al __init__.
+    "self.config_entry": "2024.12",
 }
 
 

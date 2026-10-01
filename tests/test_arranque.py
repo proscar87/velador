@@ -61,3 +61,24 @@ async def test_el_servicio_de_auditoria_responde(hass: HomeAssistant, velador) -
     )
     assert isinstance(respuesta, dict)
     assert "watched" in respuesta
+
+
+async def test_las_opciones_abren(hass: HomeAssistant, velador) -> None:
+    """`OptionsFlow.config_entry` lo pone HA desde 2024.12.
+
+    Antes de esa versión el flujo lee un atributo que no existe y revienta al
+    abrir: con el piso declarado en 2024.8, la pantalla de opciones estaba rota
+    en todo lo que corriera entre 2024.8 y 2024.11.
+    """
+    resultado = await hass.config_entries.options.async_init(velador.entry_id)
+    assert resultado["type"] == "form"
+    assert resultado["step_id"] == "init"
+
+
+async def test_descargar_quita_los_servicios(hass: HomeAssistant, velador) -> None:
+    """`async_loaded_entries` existe desde 2024.9; antes, descargar reventaba."""
+    assert hass.services.has_service(DOMAIN, "heal")
+    assert await hass.config_entries.async_unload(velador.entry_id)
+    await hass.async_block_till_done()
+    assert not hass.services.has_service(DOMAIN, "heal")
+    assert not hass.services.has_service(DOMAIN, "audit")

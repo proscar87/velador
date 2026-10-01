@@ -143,7 +143,7 @@ with native cards: no custom card dependency.
 | Minimum entities | 3 | Entries with fewer live entities are ignored |
 | Strikes | 2 | Consecutive bad scans before declaring zombie |
 | Auto-heal | on | Reload the entry automatically |
-| Cooldown | 6 h | Last step of the backoff ladder |
+| Cooldown | 6 h | Last step of the backoff ladder: wait after the last reload before declaring incurable |
 | Grace | 15 min | Ignore everything right after HA starts |
 | Exclude domains | — | Integrations that are *expected* to be offline |
 | Stale entities / minutes | — / 60 | Explicit staleness watch (these ones do get healed) |

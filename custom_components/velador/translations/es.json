@@ -19,7 +19,7 @@
           "min_entities": "Mínimo de entidades para vigilar una integración",
           "strikes": "Escaneos fallidos consecutivos antes de declarar zombie",
           "auto_heal": "Auto-curación (recargar la integración automáticamente)",
-          "cooldown_hours": "Horas entre intentos de recarga de la misma integración",
+          "cooldown_hours": "Horas de espera tras el último intento de recarga antes de declarar incurable la integración",
           "grace_minutes": "Minutos de gracia tras el arranque de Home Assistant",
           "exclude_domains": "Dominios extra a ignorar (separados por coma)",
           "stale_entities": "Entidades a vigilar por congelamiento (stale)",

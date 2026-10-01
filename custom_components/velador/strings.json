@@ -19,7 +19,7 @@
           "min_entities": "Minimum entities for an integration to be watched",
           "strikes": "Consecutive failed scans before declaring zombie",
           "auto_heal": "Auto-heal (reload the integration automatically)",
-          "cooldown_hours": "Hours between reload attempts of the same integration",
+          "cooldown_hours": "Hours to wait after the last reload attempt before declaring the integration incurable",
           "grace_minutes": "Grace minutes after Home Assistant starts",
           "exclude_domains": "Extra domains to ignore (comma separated)",
           "stale_entities": "Entities to watch for staleness",

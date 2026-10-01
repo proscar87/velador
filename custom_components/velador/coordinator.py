@@ -120,6 +120,10 @@ class WatchState:
     heal_history: list[datetime] = field(default_factory=list)
     flapping: bool = False
     reauth_since: datetime | None = None
+    # Qué empujó la escalera: "ratio", "canario:<entity_id>" o "stale:<entity_id>".
+    # Solo esa señal puede darla por curada: un canario muerto en un entry con
+    # el ratio sano no revive porque el ratio siga sano.
+    senal: str | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -133,6 +137,7 @@ class WatchState:
             "heal_history": [t.isoformat() for t in self.heal_history],
             "flapping": self.flapping,
             "reauth_since": self.reauth_since.isoformat() if self.reauth_since else None,
+            "senal": self.senal,
         }
 
     @classmethod
@@ -160,6 +165,7 @@ class WatchState:
             reauth_since=dt_util.parse_datetime(raw["reauth_since"])
             if raw.get("reauth_since")
             else None,
+            senal=raw.get("senal"),
         )
 
 
@@ -517,7 +523,6 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
         min_entities = self._opt(CONF_MIN_ENTITIES, DEFAULT_MIN_ENTITIES)
         strikes_needed = self._opt(CONF_STRIKES, DEFAULT_STRIKES)
         auto_heal = self._opt(CONF_AUTO_HEAL, DEFAULT_AUTO_HEAL)
-        cooldown = timedelta(hours=self._opt(CONF_COOLDOWN_HOURS, DEFAULT_COOLDOWN_HOURS))
         excluded = self._excluded_domains
 
         wan_down = self._wan_down()
@@ -597,11 +602,15 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
                 continue
 
             if not is_zombie:
-                if watch.strikes >= strikes_needed or watch.incurable:
+                # Un incurable que declaró un canario o un congelado no revive
+                # porque el ratio esté sano: nunca estuvo enfermo por ratio. Lo
+                # cierra su propia señal al volver (_senal_recuperada). Sin
+                # señal guardada (memoria de antes de 0.10.5) se trata como ratio.
+                por_ratio = watch.senal in (None, "ratio")
+                if watch.strikes >= strikes_needed or (watch.incurable and por_ratio):
                     # Estaba declarado zombie/incurable y revivió.
                     self._on_healed(config_entry, watch)
                 watch.strikes = 0
-                watch.incurable = False
                 watch.zombie_since = None
                 self._maybe_clear_flapping(config_entry, watch)
                 continue
@@ -789,12 +798,17 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
         healed: set[str] = set()
         for entity_id in watched:
             state = self.hass.states.get(entity_id)
-            if state is None or state.state != "unavailable":
-                continue
-            if now - state.last_changed < max_age:
+            if state is None:
                 continue
             reg = registry.entities.get(entity_id)
             entry_id = reg.config_entry_id if reg else None
+            if state.state != "unavailable":
+                # `unknown` no es volver: es lo que deja un reload a medias.
+                if entry_id and state.state != "unknown":
+                    self._senal_recuperada(entry_id, f"canario:{entity_id}")
+                continue
+            if now - state.last_changed < max_age:
+                continue
             if not entry_id or entry_id in healed:
                 continue
             healed.add(entry_id)
@@ -831,6 +845,9 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
             age = now - reported
             if age <= max_age:
                 self._stale_recover(entity_id, issue_id, silent=False)
+                reg = er.async_get(self.hass).entities.get(entity_id)
+                if reg and reg.config_entry_id:
+                    self._senal_recuperada(reg.config_entry_id, f"stale:{entity_id}")
                 continue
 
             info = {
@@ -1419,6 +1436,27 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
         minutes = steps[min(attempts - 1, len(steps) - 1)]
         return timedelta(minutes=minutes * random.uniform(0.9, 1.15))
 
+    @staticmethod
+    def _senal(info: dict) -> str:
+        """Qué señal pidió esta cura (ver WatchState.senal)."""
+        if info.get("canario"):
+            return f"canario:{info['canario']}"
+        if info.get("stale"):
+            return f"stale:{info['stale']}"
+        return "ratio"
+
+    def _senal_recuperada(self, entry_id: str, senal: str) -> None:
+        """La señal que empujó la escalera volvió: esa sí es la curación."""
+        watch = self._watch.get(entry_id)
+        if watch is None or watch.senal != senal:
+            return
+        if not (watch.reload_attempts or watch.incurable):
+            return
+        config_entry = self.hass.config_entries.async_get_entry(entry_id)
+        if config_entry is None:
+            return
+        self._on_healed(config_entry, watch)
+
     def _count_dead(self, config_entry: ConfigEntry) -> tuple[int, int]:
         registry = er.async_get(self.hass)
         dead = 0
@@ -1508,10 +1546,18 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
                 config_entry.domain,
             )
         else:
+            # El backoff va ANTES del veredicto: su último escalón
+            # (cooldown_hours) es la espera tras el último reload. Con el orden
+            # al revés el veredicto caía en el escaneo siguiente y
+            # cooldown_hours no tenía ningún efecto.
+            if watch.reload_attempts and watch.last_reload:
+                if now - watch.last_reload < self._backoff_delta(watch.reload_attempts):
+                    return
             if watch.reload_attempts >= MAX_RELOAD_ATTEMPTS:
                 # Agotó la escalera de backoff: incurable, pero NO terminal —
                 # pasa a reintento espaciado 1×/24h (half-open).
                 watch.incurable = True
+                watch.senal = self._senal(info)
                 _LOGGER.error(
                     "Zombie incurable: %s (%s) — %s reloads sin efecto; "
                     "reintento espaciado 1×/%sh",
@@ -1535,11 +1581,9 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
                     },
                 )
                 return
-            if watch.reload_attempts and watch.last_reload:
-                if now - watch.last_reload < self._backoff_delta(watch.reload_attempts):
-                    return
 
         watch.last_reload = now
+        watch.senal = self._senal(info)
         watch.reload_attempts += 1
         _LOGGER.warning(
             "Reviviendo %s (%s), intento %s",
@@ -1569,6 +1613,8 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
         )
         watch.healed_count += 1
         watch.reload_attempts = 0
+        watch.incurable = False
+        watch.senal = None
         watch.needs_reauth = False
         watch.reauth_since = None
         watch.heal_history = [

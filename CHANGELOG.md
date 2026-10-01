@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.10.5 — 2026-09-30
+
+- **Un incurable por canario o por congelado se daba por curado solo.** El escaneo por ratio
+  llamaba a `_on_healed` para cualquier entry marcado incurable cuyo ratio global estuviera
+  sano — y el de un canario muerto o un sensor congelado casi siempre lo está (9 de 10
+  entidades vivas). Resultado: `velador_healed` falso, `healed_total` inflado, el Repair
+  del incurable borrado y la escalera otra vez desde cero; a la tercera vuelta en 24 h,
+  flapping con un Repair de "esto es físico" igual de falso. Ahora el `WatchState` recuerda
+  qué señal empujó la escalera (`ratio`, `canario:<entidad>`, `stale:<entidad>`, persistida
+  en Store) y solo esa señal la da por curada: el canario que vuelve a tener valor (un
+  `unknown` no cuenta), el congelado que vuelve a reportar. Memoria de versiones anteriores,
+  sin señal guardada, se sigue tratando como ratio. **Evento nuevo:** un canario o congelado
+  que vuelve tras uno o dos reloads ahora dispara `velador_healed` (sube `healed_total` y
+  cuenta para flapping); antes esa escalera se quedaba a medias, sin evento ni reinicio.
+- **`cooldown_hours` no tenía ningún efecto.** El veredicto de incurable se revisaba antes
+  que el backoff, así que tras el tercer reload el siguiente escaneo declaraba incurable sin
+  esperar el último escalón: misma escalera con 1 h que con 48 h. Ahora el backoff va
+  primero y `cooldown_hours` es lo que se espera tras el último reload antes del veredicto
+  (30 min → 2 h → `cooldown_hours`). La etiqueta de la opción decía "horas entre intentos
+  de recarga" y se corrigió. Con 24 h o más, el probe half-open (1×/24 h desde el último
+  reload) cae en el escaneo siguiente al veredicto.
+- **Piso de Home Assistant corregido a 2024.12** en `hacs.json` (declaraba 2024.8). Con
+  2024.8.3 la pantalla de opciones no abría (`OptionsFlow.config_entry` lo pone HA desde
+  2024.12) y descargar la entry reventaba (`async_loaded_entries` llegó en 2024.9). Las dos
+  APIs entran a `APIS_DE_CORE` en `scripts/check_version.py`, que con 2024.8 ahora falla.
+  De paso, al descargar la entry se excluye a sí misma: hasta 2025.2 sigue `LOADED` mientras
+  se descarga y los servicios `velador.heal`/`velador.audit` se quedaban registrados.
+- Pruebas nuevas (`tests/test_escalera.py` y dos en `tests/test_arranque.py`), confirmadas
+  en rojo contra el código anterior antes de darlas por buenas.
+
 ## 0.10.4 — 2026-08-21
 
 - **Un reload en curso podía borrar la memoria del entry.** El escaneo marcaba un entry
