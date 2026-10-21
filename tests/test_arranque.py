@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+import pytest
 from homeassistant.const import __version__ as HA_VERSION
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Context, HomeAssistant
+from homeassistant.exceptions import Unauthorized
 from homeassistant.util import dt as dt_util
 
 from custom_components.velador.const import DOMAIN
@@ -82,3 +84,39 @@ async def test_descargar_quita_los_servicios(hass: HomeAssistant, velador) -> No
     await hass.async_block_till_done()
     assert not hass.services.has_service(DOMAIN, "heal")
     assert not hass.services.has_service(DOMAIN, "audit")
+
+
+async def test_curar_es_solo_para_administradores(
+    hass: HomeAssistant, velador, hass_read_only_user, hass_admin_user
+) -> None:
+    """`velador.heal` recarga config entries; HA reserva eso a administradores.
+
+    Registrado con `hass.services.async_register` a secas, cualquier usuario
+    —o un token suyo— podía recargar cualquier entry por id, o todas las
+    enfermas sin pasar `entry_id`, saltándose la restricción que HA pone a
+    `homeassistant.reload_config_entry`. Lo señaló frenck en hacs/default#9763.
+    `audit` solo lee, así que sigue abierto.
+    """
+    with pytest.raises(Unauthorized):
+        await hass.services.async_call(
+            DOMAIN, "heal", {}, blocking=True,
+            context=Context(user_id=hass_read_only_user.id),
+        )
+
+    respuesta = await hass.services.async_call(
+        DOMAIN, "heal", {}, blocking=True, return_response=True,
+        context=Context(user_id=hass_admin_user.id),
+    )
+    assert respuesta == {"healed": []}
+
+    # Una automatización o un script corre sin usuario: tiene que poder curar.
+    sin_usuario = await hass.services.async_call(
+        DOMAIN, "heal", {}, blocking=True, return_response=True,
+    )
+    assert sin_usuario == {"healed": []}
+
+    auditoria = await hass.services.async_call(
+        DOMAIN, "audit", {}, blocking=True, return_response=True,
+        context=Context(user_id=hass_read_only_user.id),
+    )
+    assert "watched" in auditoria

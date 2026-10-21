@@ -7,6 +7,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
+from homeassistant.helpers.service import async_register_admin_service
 
 from .const import DOMAIN
 from .coordinator import VeladorCoordinator
@@ -55,7 +56,10 @@ def _register_services(hass: HomeAssistant) -> None:
             return {}
         return coordinator.audit_snapshot()
 
-    hass.services.async_register(
+    # `heal` recarga config entries, y HA reserva eso a administradores
+    # (`homeassistant.reload_config_entry`). `audit` solo lee.
+    async_register_admin_service(
+        hass,
         DOMAIN,
         "heal",
         _heal,
