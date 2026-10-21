@@ -34,6 +34,10 @@ APIS_DE_CORE = {
     "async_loaded_entries": "2024.9",
     # OptionsFlow.config_entry lo pone HA; antes había que pasarlo al __init__.
     "self.config_entry": "2024.12",
+    # `heal` va por el helper de admin con respuesta: `supports_response`
+    # llegó a async_register_admin_service en 2025.6. Velador siempre lo usa
+    # con respuesta, así que el nombre basta como marca.
+    "async_register_admin_service": "2025.6",
 }
 
 

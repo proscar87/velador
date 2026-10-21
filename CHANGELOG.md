@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.11.0 — 2026-10-20
+
+- **`velador.heal` es solo para administradores.** Estaba registrado con
+  `hass.services.async_register` a secas, así que cualquier usuario —o un token
+  suyo— podía recargar cualquier config entry por id, o todas las enfermas sin
+  pasar `entry_id`, saltándose la restricción que Home Assistant pone a
+  `homeassistant.reload_config_entry`. Ahora va por `async_register_admin_service`:
+  un usuario que no es admin recibe `Unauthorized`. Las automatizaciones y scripts
+  siguen pudiendo llamarlo (corren sin usuario). `velador.audit` solo lee y sigue
+  abierto. Lo señaló frenck en la revisión de hacs/default#9763.
+- **Piso de Home Assistant: 2025.6** (era 2024.12). `heal` devuelve respuesta, y el
+  helper de admin acepta `supports_response` desde 2025.6. `scripts/check_version.py`
+  lo vigila.
+- Prueba nueva en `tests/test_arranque.py`, confirmada en rojo contra 0.10.5.
+
 ## 0.10.5 — 2026-09-30
 
 - **Un incurable por canario o por congelado se daba por curado solo.** El escaneo por ratio
