@@ -5,8 +5,10 @@
 > que pida la gente.
 >
 > **La v1.0 se reserva a propósito.** Un 1.0 dice "estable y probado por gente que no soy yo":
-> se marcará cuando esté en la tienda default de HACS y haya uso real de terceros. Hoy el
-> proyecto tiene dos semanas, cero usuarios externos y el PR de la tienda en cola.
+> se marcará cuando esté en la tienda default de HACS y haya uso real de terceros. Al
+> 20-oct-2026: cero estrellas, forks o issues de terceros, y el PR de la tienda
+> (hacs/default#9763) en revisión. frenck pidió `velador.heal` solo para administradores, y salió
+> en v0.11.0.
 
 Velador detecta y cura la muerte silenciosa en Home Assistant: integraciones zombie, sensores congelados y todo lo que falla sin avisar. Lo que NO va a ser: notificador push, gestor de Zigbee, plataforma de métricas ni dashboard — la señal siempre será Repairs + entidades + eventos, con cero red propia y cero dependencias.
 
@@ -105,7 +107,7 @@ Modo automático (default on, con override manual): aprender la cadencia típica
 **~~Diff post-arranque: "el restart te rompió X"~~ — LIBERADO en v0.7**
 Snapshot periódico en Store de disponibilidad por entry y por automatización; al terminar la gracia post-boot, comparar y levantar Repair con lista concreta de lo que estaba vivo y no volvió. Si cambió la versión de HA, etiquetar "posible breaking change del update" — el escenario del `kelvin`→`color_temp_kelvin` que rompió 7 automatizaciones en silencio.
 
-**~~Distribución: brands + release + submission~~ — HECHO (íconos locales v0.3.1; piso 2024.8 en v0.9.1; PR hacs/default#9763 en cola)**
+**~~Distribución: brands + release + submission~~ — HECHO (íconos locales v0.3.1; piso 2024.8 en v0.9.1, hoy 2025.6; PR hacs/default#9763 en revisión)**
 PR a `home-assistant/brands` (icon/logo 512×512), release taggeado, PR a `hacs/default`, y bump de `homeassistant` en hacs.json a 2024.8 (el código usa `last_reported`). Hoy instalar exige copiar una URL de custom repository — fricción que filtra al 95%.
 
 **~~README que convierte + kit de arranque~~ — LIBERADO en v0.8.0**
@@ -127,11 +129,24 @@ Implementado: el ritmo —no el conteo— separa las dos cosas. ≥4 olas/día s
 
 Esto es, por otra ruta, lo que la idea descartada de "línea base con recorder" quería: aprender qué es crónico sin tocar recorder, solo con lo que Velador ya persiste.
 
+## v0.10.5 y v0.11.0 — correcciones, no features
+
+- **v0.10.5 (30-sep-2026):** un incurable por canario o congelado ya no se da por curado solo,
+  `cooldown_hours` por fin tiene efecto y el piso sube a 2024.12 (la pantalla de opciones no
+  abría en 2024.8).
+- **v0.11.0 (20-oct-2026):** `velador.heal` solo para administradores, por la revisión de frenck en
+  hacs/default#9763. El piso sube a 2025.6, que es cuando el helper de admin aceptó
+  `supports_response`. La suite pasa en 2025.6.0, 2026.8.1 y 2026.10.2.
+
 ---
 
 ## Ideas en evaluación (sin ola asignada)
 
 Ninguna por ahora. El roadmap documentado está cerrado; lo que entre aquí sale de evidencia nueva, no de lluvia de ideas.
+
+**Siguiente evidencia por leer:** los dos meses de la casa de origen desde v0.10 (13-ago). Hay que
+saber cuántas curaciones fueron reales, qué Repairs se descartaron, qué quedó como crónico y si
+el Hue Bridge por fin registró una ola. Eso decide si hay v0.12 y qué lleva.
 
 ## Descartado a propósito
 

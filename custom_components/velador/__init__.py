@@ -80,14 +80,9 @@ async def _async_update_listener(hass: HomeAssistant, entry: VeladorConfigEntry)
 
 async def async_unload_entry(hass: HomeAssistant, entry: VeladorConfigEntry) -> bool:
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    # Excluirse a sí misma: hasta HA 2025.2 la entry sigue LOADED mientras se
-    # descarga (UNLOAD_IN_PROGRESS llegó en 2025.3), y los servicios se quedaban.
-    otras = [
-        e
-        for e in hass.config_entries.async_loaded_entries(DOMAIN)
-        if e.entry_id != entry.entry_id
-    ]
-    if unloaded and not otras:
+    # Desde HA 2025.3 la entry que se descarga ya no cuenta como LOADED
+    # (UNLOAD_IN_PROGRESS), así que no hace falta excluirla a mano.
+    if unloaded and not hass.config_entries.async_loaded_entries(DOMAIN):
         hass.services.async_remove(DOMAIN, "heal")
         hass.services.async_remove(DOMAIN, "audit")
     return unloaded
