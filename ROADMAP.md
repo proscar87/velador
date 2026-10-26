@@ -5,10 +5,10 @@
 > que pida la gente.
 >
 > **La v1.0 se reserva a propósito.** Un 1.0 dice "estable y probado por gente que no soy yo":
-> se marcará cuando esté en la tienda default de HACS y haya uso real de terceros. Al
-> 20-oct-2026: cero estrellas, forks o issues de terceros, y el PR de la tienda
-> (hacs/default#9763) en revisión. frenck pidió `velador.heal` solo para administradores, y salió
-> en v0.11.0.
+> se marcará cuando esté en la tienda default de HACS y haya uso real de terceros. **La tienda ya
+> está: hacs/default#9763 se mergeó el 24-oct-2026** (frenck pidió `velador.heal` solo para
+> administradores, v0.11.0, y diagnósticos sin títulos, v0.11.1). Falta la otra mitad: uso real
+> de terceros. Al 25-oct: cero estrellas, forks o issues de terceros.
 
 Velador detecta y cura la muerte silenciosa en Home Assistant: integraciones zombie, sensores congelados y todo lo que falla sin avisar. Lo que NO va a ser: notificador push, gestor de Zigbee, plataforma de métricas ni dashboard — la señal siempre será Repairs + entidades + eventos, con cero red propia y cero dependencias.
 
@@ -107,7 +107,7 @@ Modo automático (default on, con override manual): aprender la cadencia típica
 **~~Diff post-arranque: "el restart te rompió X"~~ — LIBERADO en v0.7**
 Snapshot periódico en Store de disponibilidad por entry y por automatización; al terminar la gracia post-boot, comparar y levantar Repair con lista concreta de lo que estaba vivo y no volvió. Si cambió la versión de HA, etiquetar "posible breaking change del update" — el escenario del `kelvin`→`color_temp_kelvin` que rompió 7 automatizaciones en silencio.
 
-**~~Distribución: brands + release + submission~~ — HECHO (íconos locales v0.3.1; piso 2024.8 en v0.9.1, hoy 2025.6; PR hacs/default#9763 en revisión)**
+**~~Distribución: brands + release + submission~~ — HECHO (íconos locales v0.3.1; piso 2024.8 en v0.9.1, hoy 2025.6; en la tienda default de HACS desde el 24-oct-2026, hacs/default#9763)**
 PR a `home-assistant/brands` (icon/logo 512×512), release taggeado, PR a `hacs/default`, y bump de `homeassistant` en hacs.json a 2024.8 (el código usa `last_reported`). Hoy instalar exige copiar una URL de custom repository — fricción que filtra al 95%.
 
 **~~README que convierte + kit de arranque~~ — LIBERADO en v0.8.0**

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.1 — 2026-10-25
+
+- **Los diagnósticos ya no llevan títulos de otras integraciones.** El snapshot y el
+  estado de vigilancia guardan el título de cada config entry, y muchas integraciones
+  usan el correo de la cuenta como título. Como los diagnósticos se pegan en issues
+  públicos, cada título conocido se reemplaza por `<dominio> <entry_id>`, y un título
+  con `@` de una entry que ya no existe queda como `**REDACTED**`. Sugerido por frenck
+  al aprobar hacs/default#9763.
+- Pruebas nuevas en `tests/test_diagnostics.py`; la principal falla contra 0.11.0.
+
 ## 0.11.0 — 2026-10-20
 
 - **`velador.heal` es solo para administradores.** Estaba registrado con
