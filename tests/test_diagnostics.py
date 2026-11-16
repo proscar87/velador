@@ -60,3 +60,28 @@ def test_un_titulo_corto_no_rompe_entity_ids() -> None:
     subs = [(re.compile(r"(?<![\w.@-])Sun(?![\w@-])"), "sun abc")]
     salida = _redactar({"x": "sensor.Sun_next", "y": "Sun", "z": "zombies: Sun, Hue"}, subs)
     assert salida == {"x": "sensor.Sun_next", "y": "sun abc", "z": "zombies: sun abc, Hue"}
+
+
+async def test_titulos_compartidos_no_atribuyen_otra_entry(hass, velador, integracion):
+    primera, _ = await integracion(dominio="primera", titulo=CORREO)
+    segunda, _ = await integracion(dominio="segunda", titulo=CORREO)
+    coordinator = velador.runtime_data
+    from custom_components.velador.coordinator import WatchState
+
+    for entry in (primera, segunda):
+        coordinator._watch[entry.entry_id] = WatchState()
+    coordinator.data.zombies = [
+        {"entry_id": entry.entry_id, "domain": entry.domain, "title": CORREO}
+        for entry in (primera, segunda)
+    ]
+    coordinator.data.waves = [{"title": CORREO}]
+    coordinator._snapshot = {
+        "filas": [{"entry_id": entry.entry_id, "title": CORREO} for entry in (primera, segunda)]
+    }
+    diag = await async_get_config_entry_diagnostics(hass, velador)
+    for fila, entry in zip(diag["snapshot"]["zombies"], (primera, segunda)):
+        assert fila["title"] == f"{entry.domain} {entry.entry_id}"
+    for fila, entry in zip(diag["watch_state"]["snapshot"]["filas"], (primera, segunda)):
+        assert fila["title"] == f"{entry.domain} {entry.entry_id}"
+    assert diag["snapshot"]["waves"][0]["title"] == "[título compartido por 2 entries]"
+    assert CORREO not in json.dumps(diag)

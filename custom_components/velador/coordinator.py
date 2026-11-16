@@ -104,6 +104,8 @@ _LOGGER = logging.getLogger(__name__)
 STORAGE_VERSION = 1
 STORAGE_KEY = f"{DOMAIN}.state"
 SAVE_DELAY_SECONDS = 10
+HEAL_LOG_MAX_ENTRIES = 20
+RECAIDA_HORAS = 24
 
 
 @dataclass
@@ -118,6 +120,7 @@ class WatchState:
     healed_count: int = 0
     zombie_since: datetime | None = None
     heal_history: list[datetime] = field(default_factory=list)
+    heal_log: list[dict] = field(default_factory=list)
     flapping: bool = False
     reauth_since: datetime | None = None
     # Qué empujó la escalera: "ratio", "canario:<entity_id>" o "stale:<entity_id>".
@@ -135,6 +138,7 @@ class WatchState:
             "healed_count": self.healed_count,
             "zombie_since": self.zombie_since.isoformat() if self.zombie_since else None,
             "heal_history": [t.isoformat() for t in self.heal_history],
+            "heal_log": [dict(cura) for cura in self.heal_log],
             "flapping": self.flapping,
             "reauth_since": self.reauth_since.isoformat() if self.reauth_since else None,
             "senal": self.senal,
@@ -161,6 +165,7 @@ class WatchState:
                 )
                 if t
             ],
+            heal_log=[dict(cura) for cura in raw.get("heal_log", [])][-HEAL_LOG_MAX_ENTRIES:],
             flapping=bool(raw.get("flapping", False)),
             reauth_since=dt_util.parse_datetime(raw["reauth_since"])
             if raw.get("reauth_since")
@@ -339,6 +344,13 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
             "waves": data.waves,
             "watched": data.watched,
             "healed_total": data.healed_total,
+            "curaciones": {
+                "curaciones_registradas": sum(len(w.heal_log) for w in self._watch.values()),
+                "con_recaida_24h": sum(
+                    cura["recaida_min"] is not None
+                    for w in self._watch.values() for cura in w.heal_log
+                ),
+            },
             "last_scan": data.last_scan.isoformat() if data.last_scan else None,
         }
 
@@ -558,6 +570,22 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
             # sección evita que la limpieza de abajo borre su WatchState.
             seen_entry_ids.add(config_entry.entry_id)
 
+            watch = self._watch.get(config_entry.entry_id)
+            if (
+                not setup_error
+                and watch is not None
+                and watch.needs_reauth
+                and not self._reauth_pending(config_entry.entry_id)
+            ):
+                watch.needs_reauth = False
+                watch.reauth_since = None
+                ir.async_delete_issue(self.hass, DOMAIN, f"reauth_{config_entry.entry_id}")
+                self._save_state()
+                _LOGGER.info(
+                    "Reautenticación resuelta: %s (%s)",
+                    config_entry.title, config_entry.domain,
+                )
+
             ents = entities_by_entry.get(config_entry.entry_id, [])
             total = 0
             dead = 0
@@ -620,6 +648,7 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
                 continue
             if watch.zombie_since is None:
                 watch.zombie_since = dt_util.utcnow()
+                self._registrar_recaida(watch, watch.zombie_since)
 
             info = {
                 "entry_id": config_entry.entry_id,
@@ -1404,6 +1433,17 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
                 _LOGGER.info("Sensor descongelado: %s", entity_id)
                 self.hass.bus.async_fire(EVENT_STALE_RECOVERED, {"entity_id": entity_id})
 
+    def _registrar_recaida(self, watch: WatchState, now: datetime) -> None:
+        """Anotar solo la primera recaída de la última cura, hasta 24 horas."""
+        if not watch.heal_log:
+            return
+        ultima = watch.heal_log[-1]
+        at = dt_util.parse_datetime(ultima["at"])
+        if at is not None and ultima["recaida_min"] is None:
+            transcurrido = now - at
+            if timedelta(0) <= transcurrido <= timedelta(hours=RECAIDA_HORAS):
+                ultima["recaida_min"] = int(transcurrido.total_seconds() // 60)
+
     def _on_zombie_detected(self, config_entry: ConfigEntry, info: dict) -> None:
         _LOGGER.warning(
             "Zombie detectado: %s (%s) — %s/%s entidades unavailable",
@@ -1611,6 +1651,14 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
             if watch.zombie_since
             else None
         )
+        watch.heal_log.append({
+            "at": now.isoformat(),
+            "downtime_min": downtime_min,
+            "attempts": attempts_used,
+            "senal": watch.senal,
+            "recaida_min": None,
+        })
+        del watch.heal_log[:-HEAL_LOG_MAX_ENTRIES]
         watch.healed_count += 1
         watch.reload_attempts = 0
         watch.incurable = False
