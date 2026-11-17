@@ -377,8 +377,9 @@ async def test_incurable_que_queda_bajo_el_minimo_se_cierra_sin_curacion(
     hass: HomeAssistant, vigilar, freezer
 ) -> None:
     """La casa de origen tenía un incurable con 108 intentos que no salía en
-    ningún sensor: el entry ya no llegaba a `min_entities`, así que el escaneo
-    no lo juzgaba, y nada podía cerrarle el incidente ni el Repair."""
+    ningún sensor. La firma coincide con un entry que ya no llega a
+    `min_entities` (no se pudo ver su registry): el escaneo no lo juzga, y
+    nada puede cerrarle el incidente ni el Repair."""
     caso = await _zombie_por_ratio(hass, vigilar, freezer, cooldown=1, horas=8)
     otro = caso["otro"]
     coordinator = caso["entry"].runtime_data

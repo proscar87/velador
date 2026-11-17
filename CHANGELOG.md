@@ -20,7 +20,8 @@ Sale de la misma lectura de la casa de origen que 0.12.0: lo que quedó sin expl
   En la casa de origen había un incurable con 108 intentos que no salía en ningún
   sensor: su memoria decía `incurable`, pero el escaneo ya no lo contaba entre lo
   vigilado. Es la firma de un entry que quedó con menos entidades que
-  `min_entities` (se las quitaron o deshabilitaron): el escaneo lo salta antes de
+  `min_entities` (se las quitaron o deshabilitaron; el registry de la casa no se
+  pudo ver, así que es la explicación que cuadra, no una confirmada): el escaneo lo salta antes de
   juzgarlo, así que nada podía darlo por curado ni cerrarle el Repair, que además
   se recreaba en cada arranque. Ahora, tras 30 minutos seguidos sin poder
   juzgarlo, el incidente por ratio se cierra y el Repair se borra, sin
@@ -29,14 +30,17 @@ Sale de la misma lectura de la casa de origen que 0.12.0: lo que quedó sin expl
   instante en que un reload deja al entry sin entidades.
 - **La WAN que parpadea ya no recarga a los incurables.** Al volver el internet se
   liberaban los cooldowns de todos, incurables incluidos, así que cada vuelta les
-  daba un reload fuera de su probe de una vez al día: en la casa de origen, una
+  daba un reload fuera de su probe de una vez al día. En la casa de origen, una
   integración ya incurable recibió el intento 4 y el 5 con dos horas y veinte de
-  diferencia. Un zombie a media escalera sí sigue recibiendo su reload inmediato
+  diferencia; el log no trae la línea de la WAN, pero en el código no hay otro
+  camino a ese segundo reload. A cambio, un incurable ya no se reintenta al volver
+  el internet: espera su probe. Un zombie a media escalera sí sigue recibiendo su reload inmediato
   al volver la WAN, que es para lo que existe esa liberación.
 - Pruebas nuevas en `tests/test_escalera.py`; las cuatro que prueban los defectos
   fallan contra 0.12.0, y otras tres fijan lo que no debía cambiar (entry
   deshabilitado, incurable por canario en un entry chico, backoff liberado por la
-  WAN).
+  WAN): esas pasan contra 0.12.0 a propósito y fallan al quitar la línea que
+  cuidan.
 
 ## 0.12.0 — 2026-11-16
 
