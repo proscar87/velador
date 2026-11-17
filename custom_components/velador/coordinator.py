@@ -76,6 +76,7 @@ from .const import (
     PROBE_DELAY_SECONDS,
     STORM_RELOAD_SPACING_SECONDS,
     STORM_THRESHOLD,
+    UNJUDGEABLE_MINUTES,
     DEFAULT_STALE_MINUTES,
     EVENT_STALE_DETECTED,
     EVENT_STALE_RECOVERED,
@@ -127,6 +128,10 @@ class WatchState:
     # Solo esa señal puede darla por curada: un canario muerto en un entry con
     # el ratio sano no revive porque el ratio siga sano.
     senal: str | None = None
+    # Desde cuándo el escaneo no puede juzgar este entry (menos entidades con
+    # estado que `min_entities`). No se persiste: tras un reinicio se vuelve a
+    # contar desde cero, que es lo prudente.
+    sin_juicio_desde: datetime | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -613,11 +618,13 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
                             dead_examples.append(reg_entry.entity_id)
 
                 if total < min_entities:
+                    self._cerrar_si_ya_no_es_vigilable(config_entry, watch, total)
                     continue
             data.watched += 1
             if not setup_error and total and (dead / total) < threshold:
                 sanos[config_entry.entry_id] = config_entry.title
             watch = self._watch.setdefault(config_entry.entry_id, WatchState())
+            watch.sin_juicio_desde = None
             is_zombie = setup_error or (dead / total) >= threshold
 
             if watch.needs_reauth:
@@ -723,6 +730,52 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
         data.healed_total = self._healed_total
         self._save_state()
         return data
+
+    def _cerrar_si_ya_no_es_vigilable(
+        self, config_entry: ConfigEntry, watch: WatchState | None, total: int
+    ) -> None:
+        """Cierra el incidente por ratio de un entry que quedó bajo `min_entities`.
+
+        Al quitarle o deshabilitarle entidades, el entry sale de la vigilancia
+        con el incidente abierto: nada vuelve a contarle strikes ni a darlo por
+        curado, y su Repair de incurable se recrea en cada arranque. Se cierra
+        sin `velador_healed`: nadie lo curó, solo dejó de ser vigilable.
+
+        Un incidente de canario o de congelado no pasa por aquí: esos nunca
+        dependieron del ratio y los cierra su propia señal.
+        """
+        if watch is None or watch.senal not in (None, "ratio"):
+            return
+        if not (
+            watch.incurable
+            or watch.zombie_since
+            or watch.reload_attempts
+            or watch.strikes
+        ):
+            watch.sin_juicio_desde = None
+            return
+        now = dt_util.utcnow()
+        if watch.sin_juicio_desde is None:
+            watch.sin_juicio_desde = now
+            return
+        if now - watch.sin_juicio_desde < timedelta(minutes=UNJUDGEABLE_MINUTES):
+            return
+        _LOGGER.info(
+            "%s (%s) ya no es vigilable (%s entidades con estado): incidente "
+            "cerrado sin curación tras %s intento(s)",
+            config_entry.title,
+            config_entry.domain,
+            total,
+            watch.reload_attempts,
+        )
+        watch.strikes = 0
+        watch.zombie_since = None
+        watch.reload_attempts = 0
+        watch.last_reload = None
+        watch.incurable = False
+        watch.senal = None
+        watch.sin_juicio_desde = None
+        ir.async_delete_issue(self.hass, DOMAIN, f"zombie_{config_entry.entry_id}")
 
     def _incidente_en_pausa(
         self,

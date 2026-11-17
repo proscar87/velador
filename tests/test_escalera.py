@@ -23,6 +23,7 @@ from datetime import timedelta
 import pytest
 from homeassistant.config_entries import ConfigEntryDisabler, ConfigEntryState
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
@@ -48,8 +49,8 @@ def vigilar(hass: HomeAssistant, integracion, monkeypatch):
     """
     real_reload = hass.config_entries.async_reload
 
-    async def _hacer(opciones) -> dict:
-        otro, ids = await integracion(n=10)
+    async def _hacer(opciones, n: int = 10) -> dict:
+        otro, ids = await integracion(n=n)
         if callable(opciones):
             opciones = opciones(ids)
         t0 = dt_util.utcnow()
@@ -365,5 +366,70 @@ async def test_un_entry_deshabilitado_si_se_olvida(
     assert otro.entry_id not in coordinator._watch
     assert issue_zombie(hass, otro.entry_id) is None
     assert coordinator.data.incurables == []
+
+    await bajar(hass, freezer, caso["entry"])
+
+
+# --- Un entry que deja de ser vigilable no se queda con el incidente abierto --
+
+
+async def test_incurable_que_queda_bajo_el_minimo_se_cierra_sin_curacion(
+    hass: HomeAssistant, vigilar, freezer
+) -> None:
+    """La casa de origen tenía un incurable con 108 intentos que no salía en
+    ningún sensor: el entry ya no llegaba a `min_entities`, así que el escaneo
+    no lo juzgaba, y nada podía cerrarle el incidente ni el Repair."""
+    caso = await _zombie_por_ratio(hass, vigilar, freezer, cooldown=1, horas=8)
+    otro = caso["otro"]
+    coordinator = caso["entry"].runtime_data
+    watch = coordinator._watch[otro.entry_id]
+    assert watch.incurable is True
+    recargas = len(caso["reloads"])
+
+    # Le quitan entidades: quedan 2, y el mínimo para vigilar es 3.
+    registry = er.async_get(hass)
+    for entity_id in caso["ids"][2:]:
+        registry.async_remove(entity_id)
+        hass.states.async_remove(entity_id)
+    await hass.async_block_till_done()
+
+    # No al primer escaneo: a mitad de un reload también faltan entidades.
+    await avanzar(hass, freezer, 10)
+    assert watch.incurable is True
+    assert issue_zombie(hass, otro.entry_id) is not None
+
+    await avanzar(hass, freezer, 40)
+
+    assert watch.incurable is False
+    assert watch.reload_attempts == 0
+    assert watch.zombie_since is None
+    assert issue_zombie(hass, otro.entry_id) is None, "el Repair quedó huérfano"
+    assert caso["curadas"] == [], "nadie lo curó: no hay velador_healed"
+    assert coordinator._healed_total == 0
+    assert watch.heal_log == []
+    assert len(caso["reloads"]) == recargas
+
+    await bajar(hass, freezer, caso["entry"])
+
+
+async def test_incurable_por_canario_en_entry_chico_no_se_cierra_solo(
+    hass: HomeAssistant, vigilar, freezer
+) -> None:
+    """Un canario cura a su entry aunque tenga menos entidades que el mínimo:
+    ese incidente no es de ratio y solo lo cierra el canario al volver."""
+    caso = await vigilar(CANARIO, n=2)
+    otro, canario = caso["otro"], caso["ids"][0]
+    coordinator = caso["entry"].runtime_data
+
+    hass.states.async_set(canario, "unavailable")
+    await hass.async_block_till_done()
+    await avanzar(hass, freezer, 8 * 60)
+
+    watch = coordinator._watch[otro.entry_id]
+    assert len(caso["reloads"]) == 3, caso["reloads"]
+    assert watch.incurable is True
+    assert watch.reload_attempts == 3
+    assert issue_zombie(hass, otro.entry_id) is not None
+    assert caso["curadas"] == []
 
     await bajar(hass, freezer, caso["entry"])

@@ -16,6 +16,17 @@ Sale de la misma lectura de la casa de origen que 0.12.0: lo que quedó sin expl
   sensores, porque su Repair sigue en pie. Se sigue soltando lo que se borró, se
   excluyó o se deshabilitó a mano, y ahí se limpian también los Repairs de reauth
   y de flapping, que antes se quedaban.
+- **Un incurable que deja de ser vigilable ya no se queda abierto para siempre.**
+  En la casa de origen había un incurable con 108 intentos que no salía en ningún
+  sensor: su memoria decía `incurable`, pero el escaneo ya no lo contaba entre lo
+  vigilado. Es la firma de un entry que quedó con menos entidades que
+  `min_entities` (se las quitaron o deshabilitaron): el escaneo lo salta antes de
+  juzgarlo, así que nada podía darlo por curado ni cerrarle el Repair, que además
+  se recreaba en cada arranque. Ahora, tras 30 minutos seguidos sin poder
+  juzgarlo, el incidente por ratio se cierra y el Repair se borra, sin
+  `velador_healed` ni sumar a `healed_total`: nadie lo curó. No aplica a un
+  incidente de canario o de congelado, que nunca dependieron del ratio, ni al
+  instante en que un reload deja al entry sin entidades.
 
 ## 0.12.0 — 2026-11-16
 

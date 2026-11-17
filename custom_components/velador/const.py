@@ -76,6 +76,11 @@ BACKOFF_MINUTES = [30, 120]
 INCURABLE_RETRY_HOURS = 24
 MAX_RELOAD_ATTEMPTS = 3
 
+# Un incidente abierto por ratio en un entry que ya no llega a `min_entities`
+# no lo puede cerrar nadie: el escaneo dejó de juzgarlo. Se cierra solo, pero no
+# al primer escaneo: a mitad de un reload las entidades faltan un instante.
+UNJUDGEABLE_MINUTES = 30
+
 # Probe post-reload: recontar entidades a los 90s para cerrar el incidente
 # de inmediato (y medir downtime real) en vez de esperar el siguiente scan.
 PROBE_DELAY_SECONDS = 90
