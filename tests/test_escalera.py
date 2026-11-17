@@ -21,6 +21,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
+from homeassistant.config_entries import ConfigEntryDisabler, ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
@@ -60,6 +61,8 @@ def vigilar(hass: HomeAssistant, integracion, monkeypatch):
         async def _reload(entry_id: str) -> bool:
             if entry_id == otro.entry_id:
                 caso["reloads"].append(minutos())
+                if caso.get("tras_reload"):
+                    caso["tras_reload"]()
                 return True
             return await real_reload(entry_id)
 
@@ -249,5 +252,118 @@ async def test_cooldown_corto_es_la_espera_tras_el_ultimo_reload(
     assert len(caso["incurables"]) == 1, caso["incurables"]
     espera = caso["incurables"][0] - caso["reloads"][-1]
     assert espera >= 54, f"el veredicto no esperó el último escalón: {espera} min"
+
+    await bajar(hass, freezer, caso["entry"])
+
+
+# --- La memoria sobrevive a un entry que no está cargado ---------------------
+
+
+def _reload_que_no_levanta(hass: HomeAssistant, caso: dict):
+    """El reload deja al entry en SETUP_RETRY (su nube sigue caída) y Home
+    Assistant lo vuelve a cargar dos escaneos después, igual de muerto.
+
+    Devuelve el `cada_paso` que hace de reintento nativo de HA.
+    """
+    otro = caso["otro"]
+    pasos = {"en_retry": 0}
+
+    def _tras_reload() -> None:
+        otro.mock_state(hass, ConfigEntryState.SETUP_RETRY)
+        pasos["en_retry"] = 0
+
+    def _cada_paso() -> None:
+        if otro.state is not ConfigEntryState.SETUP_RETRY:
+            return
+        pasos["en_retry"] += 1
+        if pasos["en_retry"] > 2:
+            otro.mock_state(hass, ConfigEntryState.LOADED)
+
+    caso["tras_reload"] = _tras_reload
+    return _cada_paso
+
+
+async def test_la_escalera_no_se_reinicia_si_el_reload_deja_setup_retry(
+    hass: HomeAssistant, vigilar, freezer
+) -> None:
+    """Un escaneo con el entry en SETUP_RETRY borraba su WatchState y su Repair:
+    cada reload volvía a ser el «intento 1» y el incurable no llegaba nunca."""
+    caso = await vigilar({"cooldown_hours": 1})
+    otro = caso["otro"]
+    coordinator = caso["entry"].runtime_data
+    reintento_de_ha = _reload_que_no_levanta(hass, caso)
+    for entity_id in caso["ids"]:
+        hass.states.async_set(entity_id, "unavailable")
+    await hass.async_block_till_done()
+
+    # Primer reload y dos escaneos con el entry sin cargar.
+    await avanzar(hass, freezer, 20)
+    assert otro.state is ConfigEntryState.SETUP_RETRY
+    assert caso["reloads"] == [10]
+    watch = coordinator._watch.get(otro.entry_id)
+    assert watch is not None, "se borró la memoria de un entry en SETUP_RETRY"
+    assert watch.reload_attempts == 1
+    assert issue_zombie(hass, otro.entry_id) is not None, "se borró el Repair"
+    # El Repair sigue en pie, así que el sensor también lo cuenta.
+    assert [z["entry_id"] for z in coordinator.data.zombies] == [otro.entry_id]
+
+    await avanzar(hass, freezer, 8 * 60, reintento_de_ha)
+
+    assert len(caso["reloads"]) == 3, f"la escalera se reinició: {caso['reloads']}"
+    assert len(caso["incurables"]) == 1, caso["incurables"]
+    assert coordinator._watch[otro.entry_id].incurable is True
+
+    await bajar(hass, freezer, caso["entry"])
+
+
+async def test_vuelve_sano_de_setup_retry_y_cuenta_como_curacion(
+    hass: HomeAssistant, vigilar, freezer
+) -> None:
+    """El reload de Velador lo dejó en SETUP_RETRY y el reintento de HA lo
+    levantó sano: antes esa curación se perdía (ni evento, ni heal_log)."""
+    caso = await vigilar({"cooldown_hours": 1})
+    otro = caso["otro"]
+    coordinator = caso["entry"].runtime_data
+    caso["tras_reload"] = lambda: otro.mock_state(hass, ConfigEntryState.SETUP_RETRY)
+    for entity_id in caso["ids"]:
+        hass.states.async_set(entity_id, "unavailable")
+    await hass.async_block_till_done()
+    await avanzar(hass, freezer, 20)
+    assert caso["reloads"] == [10]
+
+    otro.mock_state(hass, ConfigEntryState.LOADED)
+    for entity_id in caso["ids"]:
+        hass.states.async_set(entity_id, "on")
+    await hass.async_block_till_done()
+    await avanzar(hass, freezer, 10)
+
+    assert len(caso["curadas"]) == 1, caso["curadas"]
+    watch = coordinator._watch[otro.entry_id]
+    assert [c["attempts"] for c in watch.heal_log] == [1]
+    assert issue_zombie(hass, otro.entry_id) is None
+    assert coordinator.data.zombies == []
+
+    await bajar(hass, freezer, caso["entry"])
+
+
+async def test_un_entry_deshabilitado_si_se_olvida(
+    hass: HomeAssistant, vigilar, freezer
+) -> None:
+    """Lo que no cambia: deshabilitar a mano una integración es decir «ya no
+    la vigiles», y ahí sí se sueltan la memoria y el Repair."""
+    caso = await _zombie_por_ratio(hass, vigilar, freezer, cooldown=1, horas=8)
+    otro = caso["otro"]
+    coordinator = caso["entry"].runtime_data
+    assert coordinator._watch[otro.entry_id].incurable is True
+
+    # A mano y no con `async_set_disabled_by`: ese pasa por `async_reload`, que
+    # el fixture sustituye, y la entry se quedaría cargada.
+    object.__setattr__(otro, "disabled_by", ConfigEntryDisabler.USER)
+    otro.mock_state(hass, ConfigEntryState.NOT_LOADED)
+    await avanzar(hass, freezer, 10)
+
+    assert otro.entry_id not in coordinator._watch
+    assert issue_zombie(hass, otro.entry_id) is None
+    assert coordinator.data.incurables == []
 
     await bajar(hass, freezer, caso["entry"])
