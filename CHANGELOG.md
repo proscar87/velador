@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.12.0 — 2026-11-16
+
+Sale de leer tres meses de la casa de origen (diagnostics y Repairs de HA 2026.11.1
+con 0.11.1), que era la «siguiente evidencia por leer» del ROADMAP.
+
+- **El Repair de reauth ya no se queda pegado.** `needs_reauth` solo se limpiaba
+  cuando Velador curaba con un reload. Si reautenticabas a mano y la integración
+  volvía sola, el Repair seguía ahí y se recreaba en cada arranque: en la casa de
+  origen seguía marcada una integración media hora después de reautenticarla. Ahora
+  el escaneo lo limpia en cuanto el entry está cargado y ya no hay flow de reauth,
+  también en integraciones con pocas entidades.
+- **Los diagnósticos ya no confunden integraciones que comparten título.** Cuando
+  varias entries usan el mismo título (el correo de la cuenta, en alexa_devices, tile
+  y oura), la redacción de 0.11.1 les ponía a todas la etiqueta de una sola: una ola
+  de oura salía como alexa_devices. Un título compartido queda como
+  `[título compartido por N entries]`, y cada registro con `entry_id` lleva el
+  `<dominio> <entry_id>` que le corresponde.
+- **Ya se puede medir si las curaciones sirven.** Cada entry guarda sus últimas 20
+  curaciones (`heal_log`: cuándo, minutos caída, intentos, señal) y si recayó en
+  zombie dentro de las 24 h siguientes (`recaida_min`). El snapshot de diagnostics
+  suma `curaciones_registradas` y `con_recaida_24h`. Tiene tope a propósito: no es la
+  bitácora completa que el ROADMAP descartó. Antes, `heal_history` solo guardaba la
+  ventana de flapping, y no había forma de saber cuántas de las 449 curaciones de la
+  casa de origen se sostuvieron.
+- Pruebas nuevas en `tests/test_curaciones.py` y `tests/test_diagnostics.py`; las
+  cinco que prueban los defectos fallan contra 0.11.1.
+
 ## 0.11.1 — 2026-10-25
 
 - **Los diagnósticos ya no llevan títulos de otras integraciones.** El snapshot y el

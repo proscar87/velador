@@ -140,13 +140,30 @@ Esto es, por otra ruta, lo que la idea descartada de "línea base con recorder" 
 
 ---
 
+## v0.12 — lo que dijo la casa de origen (16-nov-2026)
+
+Leídos el diagnostics y los Repairs de la casa de origen (HA 2026.11.1, Velador 0.11.1; el
+Store y el log anterior al 14-nov no estuvieron disponibles). Lo que funcionó: 449 curaciones
+acumuladas, flapping detectado y suprimido en alexa_devices y tile, modo tormenta con 3 caídas
+juntas, Withings marcado como olas reincidentes y Growatt como ola crónica (una cada hora a
+las :17, el ciclo de su nube) sin Repair, como debe ser. Tres defectos, arreglados en 0.12.0:
+
+- [x] El Repair de reauth no se limpiaba tras una reautenticación manual.
+- [x] Los diagnósticos atribuían a una sola entry el título que comparten varias.
+- [x] No había forma de medir si una curación se sostuvo: `heal_log` con tope de 20 y
+  recaída a 24 h.
+
+**Siguiente evidencia por leer:** en unas semanas, `curaciones_registradas` contra
+`con_recaida_24h` en la casa de origen. Si la mayoría recae, la escalera está curando
+síntomas y hay que revisar el cooldown y la señal; si no, la curación se sostiene. En la
+ventana de 7 días que guarda Velador, el Hue Bridge no registró ninguna ola.
+
+---
+
 ## Ideas en evaluación (sin ola asignada)
 
 Ninguna por ahora. El roadmap documentado está cerrado; lo que entre aquí sale de evidencia nueva, no de lluvia de ideas.
 
-**Siguiente evidencia por leer:** los dos meses de la casa de origen desde v0.10 (13-ago). Hay que
-saber cuántas curaciones fueron reales, qué Repairs se descartaron, qué quedó como crónico y si
-el Hue Bridge por fin registró una ola. Eso decide si hay v0.12 y qué lleva.
 
 ## Descartado a propósito
 
