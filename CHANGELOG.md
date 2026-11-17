@@ -1,5 +1,22 @@
 # Changelog
 
+## Sin publicar
+
+Sale de la misma lectura de la casa de origen que 0.12.0: lo que quedó sin explicar.
+
+- **Un entry que no está cargado ya no pierde la memoria.** El escaneo borraba el
+  `WatchState` y el Repair de todo entry que no estuviera `LOADED` ni en
+  `SETUP_ERROR`, como si ya no existiera. Y el camino más común a `SETUP_RETRY` es
+  el propio reload de Velador cuando la nube sigue caída: cada reload volvía a ser
+  el «intento 1», la escalera no llegaba nunca a incurable, y si el reintento de
+  Home Assistant lo levantaba sano, esa curación no dejaba ni evento ni `heal_log`
+  (que es justo lo que 0.12.0 puso para medir). Ahora la memoria se conserva
+  mientras el entry exista; no se juzga ni se recarga en ese estado (eso sigue
+  siendo del reintento nativo), y un zombie ya declarado sigue contando en los
+  sensores, porque su Repair sigue en pie. Se sigue soltando lo que se borró, se
+  excluyó o se deshabilitó a mano, y ahí se limpian también los Repairs de reauth
+  y de flapping, que antes se quedaban.
+
 ## 0.12.0 — 2026-11-16
 
 Sale de leer tres meses de la casa de origen (diagnostics y Repairs de HA 2026.11.1

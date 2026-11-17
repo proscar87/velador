@@ -562,6 +562,13 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
             setup_error = config_entry.state is ConfigEntryState.SETUP_ERROR
             if config_entry.state is not ConfigEntryState.LOADED and not setup_error:
                 # SETUP_RETRY y demás: el retry nativo de HA ya corre; templanza.
+                # No se juzga ni se recarga, pero tampoco se olvida: el propio
+                # reload de Velador deja al entry aquí cuando su nube sigue
+                # caída, y borrarle la memoria reiniciaba la escalera en cada
+                # vuelta. Uno deshabilitado a mano sí se suelta: ya no se vigila.
+                if not config_entry.disabled_by:
+                    seen_entry_ids.add(config_entry.entry_id)
+                    self._incidente_en_pausa(config_entry, entities_by_entry, data)
                 continue
 
             # El entry sigue existiendo aunque este escaneo no pueda juzgarlo
@@ -699,11 +706,12 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
         if not data.zombies and not data.incurables:
             ir.async_delete_issue(self.hass, DOMAIN, "storm")
 
-        # Limpiar entries que ya no existen.
+        # Limpiar entries que ya no existen (o que se excluyeron o deshabilitaron).
         for entry_id in list(self._watch):
             if entry_id not in seen_entry_ids:
                 del self._watch[entry_id]
-                ir.async_delete_issue(self.hass, DOMAIN, f"zombie_{entry_id}")
+                for prefijo in ("zombie", "reauth", "flapping"):
+                    ir.async_delete_issue(self.hass, DOMAIN, f"{prefijo}_{entry_id}")
 
         await self._scan_canaries(data, wan_down)
         self._diff_post_arranque(sanos)
@@ -715,6 +723,40 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
         data.healed_total = self._healed_total
         self._save_state()
         return data
+
+    def _incidente_en_pausa(
+        self,
+        config_entry: ConfigEntry,
+        entities_by_entry: dict[str, list[er.RegistryEntry]],
+        data: VeladorData,
+    ) -> None:
+        """Un zombie ya declarado sigue listado mientras su entry no está cargada.
+
+        Su Repair sigue en pie, así que los sensores no pueden decir que no
+        pasa nada. Solo se lista: sin strikes y sin reload, que el reintento
+        de ese estado es de Home Assistant.
+        """
+        watch = self._watch.get(config_entry.entry_id)
+        if watch is None or watch.zombie_since is None:
+            return
+        ents = entities_by_entry.get(config_entry.entry_id, [])
+        total = max(len(ents), 1)
+        info = {
+            "entry_id": config_entry.entry_id,
+            "domain": config_entry.domain,
+            "title": config_entry.title,
+            "dead": total,
+            "total": total,
+            "examples": [r.entity_id for r in ents[:5]],
+            "zombie_since": watch.zombie_since.isoformat(),
+            "reload_attempts": watch.reload_attempts,
+            "setup_error": False,
+            "flapping": watch.flapping,
+            "automations_ciegas": self._blind_automations(
+                [r.entity_id for r in ents[:5]]
+            ),
+        }
+        (data.incurables if watch.incurable else data.zombies).append(info)
 
     def _blind_automations(self, entity_ids: list[str]) -> list[str]:
         """Radio de daño: automatizaciones que dependen de las entidades muertas."""
