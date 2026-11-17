@@ -545,9 +545,13 @@ class VeladorCoordinator(DataUpdateCoordinator[VeladorData]):
         wan_down = self._wan_down()
         if self._wan_was_down and not wan_down:
             # Volvió el internet: liberar cooldowns para curación inmediata.
+            # Los incurables no: ya agotaron la escalera, y con una WAN que
+            # parpadea cada vuelta les regalaba un reload fuera de su probe
+            # espaciado.
             _LOGGER.info("WAN de vuelta: cooldowns liberados para curación agresiva")
             for watch_state in self._watch.values():
-                watch_state.last_reload = None
+                if not watch_state.incurable:
+                    watch_state.last_reload = None
         self._wan_was_down = wan_down
 
         registry = er.async_get(self.hass)
