@@ -433,3 +433,66 @@ async def test_incurable_por_canario_en_entry_chico_no_se_cierra_solo(
     assert caso["curadas"] == []
 
     await bajar(hass, freezer, caso["entry"])
+
+
+# --- La WAN que vuelve libera cooldowns, pero no el probe del incurable -------
+
+WAN = "binary_sensor.wan_prueba"
+
+
+async def _parpadea_la_wan(hass: HomeAssistant, freezer, veces: int) -> None:
+    for _ in range(veces):
+        hass.states.async_set(WAN, "off")
+        await avanzar(hass, freezer, 10)
+        hass.states.async_set(WAN, "on")
+        await avanzar(hass, freezer, 10)
+
+
+async def test_la_wan_que_parpadea_no_recarga_al_incurable(
+    hass: HomeAssistant, vigilar, freezer
+) -> None:
+    """Cada vuelta de la WAN ponía `last_reload` en None a todos, incurables
+    incluidos: cuatro parpadeos en 80 minutos eran cuatro reloads a algo que
+    ya había agotado la escalera y toca una vez cada 24 h."""
+    hass.states.async_set(WAN, "on")
+    caso = await vigilar({"cooldown_hours": 1, "wan_entity": WAN})
+    for entity_id in caso["ids"]:
+        hass.states.async_set(entity_id, "unavailable")
+    await hass.async_block_till_done()
+    await avanzar(hass, freezer, 8 * 60)
+    watch = caso["entry"].runtime_data._watch[caso["otro"].entry_id]
+    assert watch.incurable is True
+    recargas = len(caso["reloads"])
+
+    await _parpadea_la_wan(hass, freezer, 4)
+
+    assert caso["reloads"][recargas:] == [], "reloads extra por la WAN"
+
+    # El probe espaciado sigue: uno por día, no más.
+    await avanzar(hass, freezer, 3 * 24 * 60)
+    assert len(caso["reloads"]) - recargas == 3, caso["reloads"]
+
+    await bajar(hass, freezer, caso["entry"])
+
+
+async def test_la_wan_que_vuelve_si_libera_el_backoff_de_un_zombie(
+    hass: HomeAssistant, vigilar, freezer
+) -> None:
+    """Lo que no cambia: un zombie a media escalera recibe su reload en cuanto
+    vuelve el internet, sin esperar el backoff (30 min tras el primero)."""
+    hass.states.async_set(WAN, "on")
+    caso = await vigilar({"cooldown_hours": 1, "wan_entity": WAN})
+    for entity_id in caso["ids"]:
+        hass.states.async_set(entity_id, "unavailable")
+    await hass.async_block_till_done()
+    await avanzar(hass, freezer, 10)
+    assert caso["reloads"] == [10]
+
+    hass.states.async_set(WAN, "off")
+    await avanzar(hass, freezer, 5)
+    hass.states.async_set(WAN, "on")
+    await avanzar(hass, freezer, 5)
+
+    assert caso["reloads"] == [10, 20], caso["reloads"]
+
+    await bajar(hass, freezer, caso["entry"])

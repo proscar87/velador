@@ -27,6 +27,16 @@ Sale de la misma lectura de la casa de origen que 0.12.0: lo que quedó sin expl
   `velador_healed` ni sumar a `healed_total`: nadie lo curó. No aplica a un
   incidente de canario o de congelado, que nunca dependieron del ratio, ni al
   instante en que un reload deja al entry sin entidades.
+- **La WAN que parpadea ya no recarga a los incurables.** Al volver el internet se
+  liberaban los cooldowns de todos, incurables incluidos, así que cada vuelta les
+  daba un reload fuera de su probe de una vez al día: en la casa de origen, una
+  integración ya incurable recibió el intento 4 y el 5 con dos horas y veinte de
+  diferencia. Un zombie a media escalera sí sigue recibiendo su reload inmediato
+  al volver la WAN, que es para lo que existe esa liberación.
+- Pruebas nuevas en `tests/test_escalera.py`; las cuatro que prueban los defectos
+  fallan contra 0.12.0, y otras tres fijan lo que no debía cambiar (entry
+  deshabilitado, incurable por canario en un entry chico, backoff liberado por la
+  WAN).
 
 ## 0.12.0 — 2026-11-16
 
