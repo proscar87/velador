@@ -21,7 +21,9 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
+from homeassistant.config_entries import ConfigEntryDisabler, ConfigEntryState
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
@@ -47,8 +49,8 @@ def vigilar(hass: HomeAssistant, integracion, monkeypatch):
     """
     real_reload = hass.config_entries.async_reload
 
-    async def _hacer(opciones) -> dict:
-        otro, ids = await integracion(n=10)
+    async def _hacer(opciones, n: int = 10) -> dict:
+        otro, ids = await integracion(n=n)
         if callable(opciones):
             opciones = opciones(ids)
         t0 = dt_util.utcnow()
@@ -60,6 +62,8 @@ def vigilar(hass: HomeAssistant, integracion, monkeypatch):
         async def _reload(entry_id: str) -> bool:
             if entry_id == otro.entry_id:
                 caso["reloads"].append(minutos())
+                if caso.get("tras_reload"):
+                    caso["tras_reload"]()
                 return True
             return await real_reload(entry_id)
 
@@ -249,5 +253,247 @@ async def test_cooldown_corto_es_la_espera_tras_el_ultimo_reload(
     assert len(caso["incurables"]) == 1, caso["incurables"]
     espera = caso["incurables"][0] - caso["reloads"][-1]
     assert espera >= 54, f"el veredicto no esperó el último escalón: {espera} min"
+
+    await bajar(hass, freezer, caso["entry"])
+
+
+# --- La memoria sobrevive a un entry que no está cargado ---------------------
+
+
+def _reload_que_no_levanta(hass: HomeAssistant, caso: dict):
+    """El reload deja al entry en SETUP_RETRY (su nube sigue caída) y Home
+    Assistant lo vuelve a cargar dos escaneos después, igual de muerto.
+
+    Devuelve el `cada_paso` que hace de reintento nativo de HA.
+    """
+    otro = caso["otro"]
+    pasos = {"en_retry": 0}
+
+    def _tras_reload() -> None:
+        otro.mock_state(hass, ConfigEntryState.SETUP_RETRY)
+        pasos["en_retry"] = 0
+
+    def _cada_paso() -> None:
+        if otro.state is not ConfigEntryState.SETUP_RETRY:
+            return
+        pasos["en_retry"] += 1
+        if pasos["en_retry"] > 2:
+            otro.mock_state(hass, ConfigEntryState.LOADED)
+
+    caso["tras_reload"] = _tras_reload
+    return _cada_paso
+
+
+async def test_la_escalera_no_se_reinicia_si_el_reload_deja_setup_retry(
+    hass: HomeAssistant, vigilar, freezer
+) -> None:
+    """Un escaneo con el entry en SETUP_RETRY borraba su WatchState y su Repair:
+    cada reload volvía a ser el «intento 1» y el incurable no llegaba nunca."""
+    caso = await vigilar({"cooldown_hours": 1})
+    otro = caso["otro"]
+    coordinator = caso["entry"].runtime_data
+    reintento_de_ha = _reload_que_no_levanta(hass, caso)
+    for entity_id in caso["ids"]:
+        hass.states.async_set(entity_id, "unavailable")
+    await hass.async_block_till_done()
+
+    # Primer reload y dos escaneos con el entry sin cargar.
+    await avanzar(hass, freezer, 20)
+    assert otro.state is ConfigEntryState.SETUP_RETRY
+    assert caso["reloads"] == [10]
+    watch = coordinator._watch.get(otro.entry_id)
+    assert watch is not None, "se borró la memoria de un entry en SETUP_RETRY"
+    assert watch.reload_attempts == 1
+    assert issue_zombie(hass, otro.entry_id) is not None, "se borró el Repair"
+    # El Repair sigue en pie, así que el sensor también lo cuenta.
+    assert [z["entry_id"] for z in coordinator.data.zombies] == [otro.entry_id]
+
+    await avanzar(hass, freezer, 8 * 60, reintento_de_ha)
+
+    assert len(caso["reloads"]) == 3, f"la escalera se reinició: {caso['reloads']}"
+    assert len(caso["incurables"]) == 1, caso["incurables"]
+    assert coordinator._watch[otro.entry_id].incurable is True
+
+    await bajar(hass, freezer, caso["entry"])
+
+
+async def test_vuelve_sano_de_setup_retry_y_cuenta_como_curacion(
+    hass: HomeAssistant, vigilar, freezer
+) -> None:
+    """El reload de Velador lo dejó en SETUP_RETRY y el reintento de HA lo
+    levantó sano: antes esa curación se perdía (ni evento, ni heal_log)."""
+    caso = await vigilar({"cooldown_hours": 1})
+    otro = caso["otro"]
+    coordinator = caso["entry"].runtime_data
+    caso["tras_reload"] = lambda: otro.mock_state(hass, ConfigEntryState.SETUP_RETRY)
+    for entity_id in caso["ids"]:
+        hass.states.async_set(entity_id, "unavailable")
+    await hass.async_block_till_done()
+    await avanzar(hass, freezer, 20)
+    assert caso["reloads"] == [10]
+
+    otro.mock_state(hass, ConfigEntryState.LOADED)
+    for entity_id in caso["ids"]:
+        hass.states.async_set(entity_id, "on")
+    await hass.async_block_till_done()
+    await avanzar(hass, freezer, 10)
+
+    assert len(caso["curadas"]) == 1, caso["curadas"]
+    watch = coordinator._watch[otro.entry_id]
+    assert [c["attempts"] for c in watch.heal_log] == [1]
+    assert issue_zombie(hass, otro.entry_id) is None
+    assert coordinator.data.zombies == []
+
+    await bajar(hass, freezer, caso["entry"])
+
+
+async def test_un_entry_deshabilitado_si_se_olvida(
+    hass: HomeAssistant, vigilar, freezer
+) -> None:
+    """Lo que no cambia: deshabilitar a mano una integración es decir «ya no
+    la vigiles», y ahí sí se sueltan la memoria y el Repair."""
+    caso = await _zombie_por_ratio(hass, vigilar, freezer, cooldown=1, horas=8)
+    otro = caso["otro"]
+    coordinator = caso["entry"].runtime_data
+    assert coordinator._watch[otro.entry_id].incurable is True
+
+    # A mano y no con `async_set_disabled_by`: ese pasa por `async_reload`, que
+    # el fixture sustituye, y la entry se quedaría cargada.
+    object.__setattr__(otro, "disabled_by", ConfigEntryDisabler.USER)
+    otro.mock_state(hass, ConfigEntryState.NOT_LOADED)
+    await avanzar(hass, freezer, 10)
+
+    assert otro.entry_id not in coordinator._watch
+    assert issue_zombie(hass, otro.entry_id) is None
+    assert coordinator.data.incurables == []
+
+    await bajar(hass, freezer, caso["entry"])
+
+
+# --- Un entry que deja de ser vigilable no se queda con el incidente abierto --
+
+
+async def test_incurable_que_queda_bajo_el_minimo_se_cierra_sin_curacion(
+    hass: HomeAssistant, vigilar, freezer
+) -> None:
+    """La casa de origen tenía un incurable con 108 intentos que no salía en
+    ningún sensor. La firma coincide con un entry que ya no llega a
+    `min_entities` (no se pudo ver su registry): el escaneo no lo juzga, y
+    nada puede cerrarle el incidente ni el Repair."""
+    caso = await _zombie_por_ratio(hass, vigilar, freezer, cooldown=1, horas=8)
+    otro = caso["otro"]
+    coordinator = caso["entry"].runtime_data
+    watch = coordinator._watch[otro.entry_id]
+    assert watch.incurable is True
+    recargas = len(caso["reloads"])
+
+    # Le quitan entidades: quedan 2, y el mínimo para vigilar es 3.
+    registry = er.async_get(hass)
+    for entity_id in caso["ids"][2:]:
+        registry.async_remove(entity_id)
+        hass.states.async_remove(entity_id)
+    await hass.async_block_till_done()
+
+    # No al primer escaneo: a mitad de un reload también faltan entidades.
+    await avanzar(hass, freezer, 10)
+    assert watch.incurable is True
+    assert issue_zombie(hass, otro.entry_id) is not None
+
+    await avanzar(hass, freezer, 40)
+
+    assert watch.incurable is False
+    assert watch.reload_attempts == 0
+    assert watch.zombie_since is None
+    assert issue_zombie(hass, otro.entry_id) is None, "el Repair quedó huérfano"
+    assert caso["curadas"] == [], "nadie lo curó: no hay velador_healed"
+    assert coordinator._healed_total == 0
+    assert watch.heal_log == []
+    assert len(caso["reloads"]) == recargas
+
+    await bajar(hass, freezer, caso["entry"])
+
+
+async def test_incurable_por_canario_en_entry_chico_no_se_cierra_solo(
+    hass: HomeAssistant, vigilar, freezer
+) -> None:
+    """Un canario cura a su entry aunque tenga menos entidades que el mínimo:
+    ese incidente no es de ratio y solo lo cierra el canario al volver."""
+    caso = await vigilar(CANARIO, n=2)
+    otro, canario = caso["otro"], caso["ids"][0]
+    coordinator = caso["entry"].runtime_data
+
+    hass.states.async_set(canario, "unavailable")
+    await hass.async_block_till_done()
+    await avanzar(hass, freezer, 8 * 60)
+
+    watch = coordinator._watch[otro.entry_id]
+    assert len(caso["reloads"]) == 3, caso["reloads"]
+    assert watch.incurable is True
+    assert watch.reload_attempts == 3
+    assert issue_zombie(hass, otro.entry_id) is not None
+    assert caso["curadas"] == []
+
+    await bajar(hass, freezer, caso["entry"])
+
+
+# --- La WAN que vuelve libera cooldowns, pero no el probe del incurable -------
+
+WAN = "binary_sensor.wan_prueba"
+
+
+async def _parpadea_la_wan(hass: HomeAssistant, freezer, veces: int) -> None:
+    for _ in range(veces):
+        hass.states.async_set(WAN, "off")
+        await avanzar(hass, freezer, 10)
+        hass.states.async_set(WAN, "on")
+        await avanzar(hass, freezer, 10)
+
+
+async def test_la_wan_que_parpadea_no_recarga_al_incurable(
+    hass: HomeAssistant, vigilar, freezer
+) -> None:
+    """Cada vuelta de la WAN ponía `last_reload` en None a todos, incurables
+    incluidos: cuatro parpadeos en 80 minutos eran cuatro reloads a algo que
+    ya había agotado la escalera y toca una vez cada 24 h."""
+    hass.states.async_set(WAN, "on")
+    caso = await vigilar({"cooldown_hours": 1, "wan_entity": WAN})
+    for entity_id in caso["ids"]:
+        hass.states.async_set(entity_id, "unavailable")
+    await hass.async_block_till_done()
+    await avanzar(hass, freezer, 8 * 60)
+    watch = caso["entry"].runtime_data._watch[caso["otro"].entry_id]
+    assert watch.incurable is True
+    recargas = len(caso["reloads"])
+
+    await _parpadea_la_wan(hass, freezer, 4)
+
+    assert caso["reloads"][recargas:] == [], "reloads extra por la WAN"
+
+    # El probe espaciado sigue: uno por día, no más.
+    await avanzar(hass, freezer, 3 * 24 * 60)
+    assert len(caso["reloads"]) - recargas == 3, caso["reloads"]
+
+    await bajar(hass, freezer, caso["entry"])
+
+
+async def test_la_wan_que_vuelve_si_libera_el_backoff_de_un_zombie(
+    hass: HomeAssistant, vigilar, freezer
+) -> None:
+    """Lo que no cambia: un zombie a media escalera recibe su reload en cuanto
+    vuelve el internet, sin esperar el backoff (30 min tras el primero)."""
+    hass.states.async_set(WAN, "on")
+    caso = await vigilar({"cooldown_hours": 1, "wan_entity": WAN})
+    for entity_id in caso["ids"]:
+        hass.states.async_set(entity_id, "unavailable")
+    await hass.async_block_till_done()
+    await avanzar(hass, freezer, 10)
+    assert caso["reloads"] == [10]
+
+    hass.states.async_set(WAN, "off")
+    await avanzar(hass, freezer, 5)
+    hass.states.async_set(WAN, "on")
+    await avanzar(hass, freezer, 5)
+
+    assert caso["reloads"] == [10, 20], caso["reloads"]
 
     await bajar(hass, freezer, caso["entry"])
